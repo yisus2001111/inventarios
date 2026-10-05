@@ -1,0 +1,364 @@
+"""Aplicación web de control de inventario interno."""
+
+import csv
+import io
+import os
+from datetime import datetime
+
+from flask import (Flask, Response, abort, flash, redirect, render_template,
+                   request, url_for)
+
+from . import db as base
+from .db import ErrorInventario, get_db
+
+POR_PAGINA = 50
+
+
+def entero(valor, defecto=None):
+    try:
+        return int(str(valor).strip())
+    except (TypeError, ValueError):
+        return defecto
+
+
+def create_app(config=None):
+    app = Flask(__name__)
+    app.config.update(
+        SECRET_KEY=os.environ.get("INVENTARIO_SECRET_KEY", "cambia-esta-clave"),
+        DATABASE=os.environ.get(
+            "INVENTARIO_DB", os.path.join(app.root_path, "..", "inventario.db")
+        ),
+    )
+    if config:
+        app.config.update(config)
+
+    app.teardown_appcontext(base.cerrar_db)
+    with app.app_context():
+        base.init_db()
+
+    # ------------------------------------------------------------------ productos
+
+    @app.route("/")
+    def index():
+        db = get_db()
+        q = request.args.get("q", "").strip()
+        categoria = request.args.get("categoria", "")
+        estado = request.args.get("estado", "activos")
+        pagina = max(entero(request.args.get("pagina"), 1), 1)
+
+        condiciones, params = [], []
+        if q:
+            condiciones.append("(codigo LIKE ? OR nombre LIKE ? OR ubicacion LIKE ?)")
+            params += [f"%{q}%"] * 3
+        if categoria:
+            condiciones.append("categoria = ?")
+            params.append(categoria)
+        if estado == "activos":
+            condiciones.append("activo = 1")
+        elif estado == "inactivos":
+            condiciones.append("activo = 0")
+        elif estado == "bajo":
+            condiciones.append("activo = 1 AND stock <= stock_minimo")
+        where = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
+
+        total = db.execute(f"SELECT COUNT(*) FROM productos {where}", params).fetchone()[0]
+        paginas = max((total + POR_PAGINA - 1) // POR_PAGINA, 1)
+        pagina = min(pagina, paginas)
+        productos = db.execute(
+            f"SELECT * FROM productos {where} ORDER BY nombre COLLATE NOCASE "
+            f"LIMIT ? OFFSET ?",
+            params + [POR_PAGINA, (pagina - 1) * POR_PAGINA],
+        ).fetchall()
+
+        resumen = db.execute(
+            """SELECT COUNT(*) AS productos,
+                      COALESCE(SUM(stock), 0) AS unidades,
+                      COALESCE(SUM(stock <= stock_minimo), 0) AS bajo_minimo
+               FROM productos WHERE activo = 1"""
+        ).fetchone()
+        categorias = [r[0] for r in db.execute(
+            "SELECT DISTINCT categoria FROM productos WHERE categoria <> '' ORDER BY categoria"
+        )]
+        return render_template(
+            "index.html", productos=productos, resumen=resumen, categorias=categorias,
+            q=q, categoria=categoria, estado=estado, pagina=pagina, paginas=paginas,
+            total=total,
+        )
+
+    @app.route("/productos/nuevo", methods=["GET", "POST"])
+    def producto_nuevo():
+        form = request.form
+        if request.method == "POST":
+            db = get_db()
+            try:
+                stock = entero(form.get("stock_inicial") or 0)
+                minimo = entero(form.get("stock_minimo") or 0)
+                if stock is None or minimo is None:
+                    raise ErrorInventario("Las cantidades deben ser números enteros.")
+                pid = base.crear_producto(
+                    db, form.get("codigo"), form.get("nombre"),
+                    form.get("categoria", ""), form.get("ubicacion", ""),
+                    form.get("unidad", "pza"), stock, minimo,
+                    responsable=form.get("responsable", ""),
+                )
+                db.commit()
+            except ErrorInventario as e:
+                db.rollback()
+                flash(str(e), "error")
+            else:
+                flash("Producto dado de alta.", "ok")
+                return redirect(url_for("producto_detalle", pid=pid))
+        return render_template("producto_form.html", producto=None, form=form)
+
+    def obtener_producto(pid):
+        producto = get_db().execute("SELECT * FROM productos WHERE id = ?", (pid,)).fetchone()
+        if producto is None:
+            abort(404)
+        return producto
+
+    @app.route("/productos/<int:pid>")
+    def producto_detalle(pid):
+        producto = obtener_producto(pid)
+        movimientos = get_db().execute(
+            "SELECT * FROM movimientos WHERE producto_id = ? ORDER BY id DESC LIMIT 200",
+            (pid,),
+        ).fetchall()
+        return render_template("producto.html", producto=producto, movimientos=movimientos)
+
+    @app.route("/productos/<int:pid>/editar", methods=["GET", "POST"])
+    def producto_editar(pid):
+        producto = obtener_producto(pid)
+        form = request.form
+        if request.method == "POST":
+            db = get_db()
+            codigo = form.get("codigo", "").strip()
+            nombre = form.get("nombre", "").strip()
+            minimo = entero(form.get("stock_minimo") or 0)
+            error = None
+            if not codigo or not nombre:
+                error = "El código y el nombre son obligatorios."
+            elif minimo is None or minimo < 0:
+                error = "El stock mínimo debe ser un entero no negativo."
+            elif db.execute("SELECT 1 FROM productos WHERE codigo = ? AND id <> ?",
+                            (codigo, pid)).fetchone():
+                error = f"Ya existe otro producto con el código «{codigo}»."
+            if error:
+                flash(error, "error")
+            else:
+                db.execute(
+                    """UPDATE productos SET codigo=?, nombre=?, categoria=?, ubicacion=?,
+                              unidad=?, stock_minimo=? WHERE id=?""",
+                    (codigo, nombre, form.get("categoria", "").strip(),
+                     form.get("ubicacion", "").strip(),
+                     form.get("unidad", "").strip() or "pza", minimo, pid),
+                )
+                db.commit()
+                flash("Cambios guardados.", "ok")
+                return redirect(url_for("producto_detalle", pid=pid))
+        return render_template("producto_form.html", producto=producto, form=form)
+
+    @app.route("/productos/<int:pid>/activo", methods=["POST"])
+    def producto_activo(pid):
+        producto = obtener_producto(pid)
+        activar = request.form.get("activar") == "1"
+        if not activar and producto["stock"] > 0:
+            flash("Para desactivar un producto primero da de baja toda su existencia.", "error")
+        else:
+            db = get_db()
+            db.execute("UPDATE productos SET activo = ? WHERE id = ?", (int(activar), pid))
+            db.commit()
+            flash("Producto reactivado." if activar else "Producto desactivado.", "ok")
+        return redirect(url_for("producto_detalle", pid=pid))
+
+    # ---------------------------------------------------------------- movimientos
+
+    def aplicar_movimiento(pid):
+        db = get_db()
+        try:
+            nuevo = base.registrar_movimiento(
+                db, pid, request.form.get("tipo"), entero(request.form.get("cantidad")),
+                request.form.get("motivo", ""), request.form.get("responsable", ""),
+            )
+            db.commit()
+        except ErrorInventario as e:
+            db.rollback()
+            flash(str(e), "error")
+            return False
+        verbo = "Alta" if request.form.get("tipo") == "alta" else "Baja"
+        flash(f"{verbo} registrada. Existencia actual: {nuevo}.", "ok")
+        return True
+
+    @app.route("/productos/<int:pid>/movimiento", methods=["POST"])
+    def producto_movimiento(pid):
+        obtener_producto(pid)
+        aplicar_movimiento(pid)
+        return redirect(url_for("producto_detalle", pid=pid))
+
+    @app.route("/movimiento", methods=["GET", "POST"])
+    def movimiento_rapido():
+        """Alta/baja tecleando o escaneando el código del producto."""
+        if request.method == "POST":
+            codigo = request.form.get("codigo", "").strip()
+            fila = get_db().execute(
+                "SELECT id FROM productos WHERE codigo = ?", (codigo,)
+            ).fetchone()
+            if fila is None:
+                flash(f"No existe ningún producto con el código «{codigo}».", "error")
+            elif aplicar_movimiento(fila["id"]):
+                return redirect(url_for(
+                    "movimiento_rapido", tipo=request.form.get("tipo"),
+                    responsable=request.form.get("responsable", ""),
+                ))
+        ultimos = get_db().execute(
+            """SELECT m.*, p.codigo, p.nombre, p.unidad FROM movimientos m
+               JOIN productos p ON p.id = m.producto_id ORDER BY m.id DESC LIMIT 10"""
+        ).fetchall()
+        return render_template("movimiento.html", ultimos=ultimos,
+                               form=request.form or request.args)
+
+    def consulta_movimientos():
+        tipo = request.args.get("tipo", "")
+        desde = request.args.get("desde", "")
+        hasta = request.args.get("hasta", "")
+        q = request.args.get("q", "").strip()
+        condiciones, params = [], []
+        if tipo in ("alta", "baja"):
+            condiciones.append("m.tipo = ?")
+            params.append(tipo)
+        if desde:
+            condiciones.append("m.fecha >= ?")
+            params.append(desde)
+        if hasta:
+            condiciones.append("m.fecha <= ?")
+            params.append(hasta + " 23:59:59")
+        if q:
+            condiciones.append("(p.codigo LIKE ? OR p.nombre LIKE ? OR m.responsable LIKE ?"
+                               " OR m.motivo LIKE ?)")
+            params += [f"%{q}%"] * 4
+        where = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
+        sql = f"""SELECT m.*, p.codigo, p.nombre, p.unidad FROM movimientos m
+                  JOIN productos p ON p.id = m.producto_id {where}"""
+        filtros = dict(tipo=tipo, desde=desde, hasta=hasta, q=q)
+        return sql, params, filtros
+
+    @app.route("/movimientos")
+    def movimientos():
+        db = get_db()
+        sql, params, filtros = consulta_movimientos()
+        pagina = max(entero(request.args.get("pagina"), 1), 1)
+        total = db.execute(f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+        paginas = max((total + POR_PAGINA - 1) // POR_PAGINA, 1)
+        pagina = min(pagina, paginas)
+        filas = db.execute(f"{sql} ORDER BY m.id DESC LIMIT ? OFFSET ?",
+                           params + [POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
+        return render_template("movimientos.html", movimientos=filas, total=total,
+                               pagina=pagina, paginas=paginas, **filtros)
+
+    # ------------------------------------------------------- exportar / importar
+
+    def respuesta_csv(nombre, encabezados, filas):
+        salida = io.StringIO()
+        salida.write("﻿")  # BOM para que Excel respete los acentos
+        writer = csv.writer(salida)
+        writer.writerow(encabezados)
+        writer.writerows(filas)
+        sello = datetime.now().strftime("%Y%m%d")
+        return Response(
+            salida.getvalue(), mimetype="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={nombre}_{sello}.csv"},
+        )
+
+    @app.route("/exportar/productos.csv")
+    def exportar_productos():
+        campos = ["codigo", "nombre", "categoria", "ubicacion", "unidad",
+                  "stock", "stock_minimo", "activo"]
+        filas = get_db().execute(
+            f"SELECT {', '.join(campos)} FROM productos ORDER BY codigo"
+        ).fetchall()
+        return respuesta_csv("productos", campos, [tuple(f) for f in filas])
+
+    @app.route("/exportar/movimientos.csv")
+    def exportar_movimientos():
+        sql, params, _ = consulta_movimientos()
+        filas = get_db().execute(f"{sql} ORDER BY m.id", params).fetchall()
+        return respuesta_csv(
+            "movimientos",
+            ["fecha", "codigo", "nombre", "tipo", "cantidad", "existencia_resultante",
+             "motivo", "responsable"],
+            [(f["fecha"], f["codigo"], f["nombre"], f["tipo"], f["cantidad"],
+              f["stock_resultante"], f["motivo"], f["responsable"]) for f in filas],
+        )
+
+    @app.route("/importar", methods=["GET", "POST"])
+    def importar():
+        if request.method == "GET":
+            return render_template("importar.html", resultado=None)
+
+        archivo = request.files.get("archivo")
+        if not archivo or not archivo.filename:
+            flash("Selecciona un archivo CSV.", "error")
+            return render_template("importar.html", resultado=None)
+
+        datos = archivo.read()
+        try:
+            texto = datos.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            texto = datos.decode("latin-1")
+        try:
+            dialecto = csv.Sniffer().sniff(texto[:4096], delimiters=",;\t")
+        except csv.Error:
+            dialecto = csv.excel
+        lector = csv.DictReader(io.StringIO(texto), dialect=dialecto)
+        lector.fieldnames = [(c or "").strip().lower() for c in (lector.fieldnames or [])]
+        if not {"codigo", "nombre"} <= set(lector.fieldnames):
+            flash("El archivo debe tener al menos las columnas «codigo» y «nombre».", "error")
+            return render_template("importar.html", resultado=None)
+
+        db = get_db()
+        responsable = request.form.get("responsable", "")
+        resultado = {"creados": 0, "actualizados": 0, "errores": []}
+        for n, fila in enumerate(lector, start=2):
+            fila = {k: (v or "").strip() for k, v in fila.items() if k}
+            if not any(fila.values()):
+                continue
+            stock = entero(fila.get("stock") or 0)
+            minimo = entero(fila.get("stock_minimo") or 0)
+            if stock is None or minimo is None:
+                resultado["errores"].append(f"Fila {n}: cantidades no numéricas.")
+                continue
+            existente = db.execute("SELECT id FROM productos WHERE codigo = ?",
+                                   (fila.get("codigo", ""),)).fetchone()
+            try:
+                if existente:
+                    # Solo se actualizan los datos descriptivos; la existencia
+                    # cambia únicamente mediante movimientos de alta/baja.
+                    if not fila.get("nombre"):
+                        raise ErrorInventario("el nombre es obligatorio.")
+                    db.execute(
+                        """UPDATE productos SET nombre=?, categoria=?, ubicacion=?,
+                                  unidad=?, stock_minimo=? WHERE id=?""",
+                        (fila["nombre"], fila.get("categoria", ""), fila.get("ubicacion", ""),
+                         fila.get("unidad") or "pza", minimo, existente["id"]),
+                    )
+                    resultado["actualizados"] += 1
+                else:
+                    base.crear_producto(
+                        db, fila.get("codigo"), fila.get("nombre"), fila.get("categoria", ""),
+                        fila.get("ubicacion", ""), fila.get("unidad") or "pza", stock, minimo,
+                        responsable=responsable, motivo="Importación inicial",
+                    )
+                    resultado["creados"] += 1
+            except ErrorInventario as e:
+                resultado["errores"].append(f"Fila {n}: {e}")
+        db.commit()
+        return render_template("importar.html", resultado=resultado)
+
+    @app.route("/plantilla.csv")
+    def plantilla():
+        return respuesta_csv(
+            "plantilla_inventario",
+            ["codigo", "nombre", "categoria", "ubicacion", "unidad", "stock", "stock_minimo"],
+            [("A-001", "Tóner HP 85A", "Consumibles", "Almacén 1 / Estante B", "pza", 12, 3)],
+        )
+
+    return app

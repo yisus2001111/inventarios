@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block titulo %}Productos{% endblock %}
+{% block contenido %}
+<section class="tarjetas">
+  <div class="tarjeta"><span>{{ resumen.productos }}</span>productos activos</div>
+  <div class="tarjeta"><span>{{ resumen.unidades }}</span>unidades en existencia</div>
+  <a class="tarjeta {{ 'alerta' if resumen.bajo_minimo }}" href="{{ url_for('index', estado='bajo') }}">
+    <span>{{ resumen.bajo_minimo }}</span>en o bajo el mínimo</a>
+</section>
+
+<div class="encabezado">
+  <h1>Productos</h1>
+  <div class="botones">
+    <a class="boton secundario" href="{{ url_for('exportar_productos') }}">Exportar CSV</a>
+    <a class="boton" href="{{ url_for('producto_nuevo') }}">+ Nuevo producto</a>
+  </div>
+</div>
+
+<form class="filtros" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Buscar código, nombre o ubicación" autofocus>
+  <select name="categoria">
+    <option value="">Todas las categorías</option>
+    {% for c in categorias %}<option {{ 'selected' if c == categoria }}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="estado">
+    {% for v, t in [('activos','Activos'),('bajo','Bajo mínimo'),('inactivos','Desactivados'),('todos','Todos')] %}
+      <option value="{{ v }}" {{ 'selected' if v == estado }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <button>Filtrar</button>
+</form>
+
+<p class="nota">{{ total }} resultado{{ '' if total == 1 else 's' }}</p>
+<div class="tabla-scroll">
+<table>
+  <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th class="num">Existencia</th><th class="num">Mínimo</th></tr></thead>
+  <tbody>
+  {% for p in productos %}
+    <tr class="{{ 'inactivo' if not p.activo }} {{ 'bajo' if p.activo and p.stock <= p.stock_minimo }}">
+      <td><a href="{{ url_for('producto_detalle', pid=p.id) }}">{{ p.codigo }}</a></td>
+      <td><a href="{{ url_for('producto_detalle', pid=p.id) }}">{{ p.nombre }}</a></td>
+      <td>{{ p.categoria }}</td>
+      <td>{{ p.ubicacion }}</td>
+      <td class="num">{{ p.stock }} {{ p.unidad }}</td>
+      <td class="num">{{ p.stock_minimo }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="vacio">No hay productos. <a href="{{ url_for('producto_nuevo') }}">Da de alta el primero</a> o <a href="{{ url_for('importar') }}">importa un CSV</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "_paginacion.html" %}
+{% endblock %}

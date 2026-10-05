@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block titulo %}Historial{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>Historial de movimientos</h1>
+  <a class="boton secundario" href="{{ url_for('exportar_movimientos', **request.args.to_dict()) }}">Exportar CSV</a>
+</div>
+<form class="filtros" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Producto, motivo o responsable">
+  <select name="tipo">
+    <option value="">Altas y bajas</option>
+    <option value="alta" {{ 'selected' if tipo == 'alta' }}>Solo altas</option>
+    <option value="baja" {{ 'selected' if tipo == 'baja' }}>Solo bajas</option>
+  </select>
+  <label>Desde <input type="date" name="desde" value="{{ desde }}"></label>
+  <label>Hasta <input type="date" name="hasta" value="{{ hasta }}"></label>
+  <button>Filtrar</button>
+</form>
+<p class="nota">{{ total }} movimiento{{ '' if total == 1 else 's' }}</p>
+<div class="tabla-scroll">
+<table>
+  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Responsable</th></tr></thead>
+  <tbody>
+  {% for m in movimientos %}
+    <tr><td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
+      <td><span class="etiqueta {{ m.tipo }}">{{ m.tipo }}</span></td>
+      <td class="num">{{ '+' if m.tipo == 'alta' else '−' }}{{ m.cantidad }}</td>
+      <td class="num">{{ m.stock_resultante }} {{ m.unidad }}</td><td>{{ m.motivo }}</td><td>{{ m.responsable }}</td></tr>
+  {% else %}
+    <tr><td colspan="7" class="vacio">No hay movimientos con esos filtros.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "_paginacion.html" %}
+{% endblock %}

@@ -1,0 +1,8 @@
+{% if paginas > 1 %}
+<nav class="paginacion">
+  {% set args = request.args.to_dict() %}
+  {% if pagina > 1 %}{% set _ = args.update(pagina=pagina-1) %}<a href="?{{ args|urlencode }}">&larr; Anterior</a>{% endif %}
+  <span>Página {{ pagina }} de {{ paginas }}</span>
+  {% if pagina < paginas %}{% set _ = args.update(pagina=pagina+1) %}<a href="?{{ args|urlencode }}">Siguiente &rarr;</a>{% endif %}
+</nav>
+{% endif %}

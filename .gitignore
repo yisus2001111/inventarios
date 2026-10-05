@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+inventario.db
+respaldos/
+.pytest_cache/

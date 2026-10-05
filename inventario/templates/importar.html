@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Importar{% endblock %}
+{% block contenido %}
+<h1>Importar productos desde CSV</h1>
+<p>Sirve para cargar de una vez tu inventario actual (por ejemplo, exportado de Excel como CSV).
+  Columnas: <code>codigo</code>, <code>nombre</code> (obligatorias), <code>categoria</code>, <code>ubicacion</code>,
+  <code>unidad</code>, <code>stock</code>, <code>stock_minimo</code>. Separador coma o punto y coma.
+  <a href="{{ url_for('plantilla') }}">Descargar plantilla</a>.</p>
+<ul class="nota">
+  <li>Códigos nuevos: se crean con su existencia inicial, registrada como alta.</li>
+  <li>Códigos que ya existen: se actualizan sus datos, pero <strong>no</strong> la existencia (usa altas/bajas para eso).</li>
+</ul>
+<form method="post" enctype="multipart/form-data" class="formulario">
+  <label>Archivo CSV<input type="file" name="archivo" accept=".csv,text/csv" required></label>
+  <label>Responsable<input name="responsable"></label>
+  <div class="acciones completo"><button>Importar</button></div>
+</form>
+{% if resultado %}
+<div class="aviso {{ 'error' if resultado.errores else 'ok' }}">
+  {{ resultado.creados }} creados, {{ resultado.actualizados }} actualizados, {{ resultado.errores|length }} con error.
+</div>
+{% if resultado.errores %}<ul>{% for e in resultado.errores %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+{% endblock %}

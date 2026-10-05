@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Inventario{% endblock %} · Inventario interno</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="barra">
+    <a class="marca" href="{{ url_for('index') }}">Inventario interno</a>
+    <nav>
+      <a href="{{ url_for('index') }}">Productos</a>
+      <a href="{{ url_for('movimiento_rapido') }}">Alta / baja rápida</a>
+      <a href="{{ url_for('movimientos') }}">Historial</a>
+      <a href="{{ url_for('importar') }}">Importar</a>
+    </nav>
+  </header>
+  <main>
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in mensajes %}<div class="aviso {{ cat }}">{{ msg }}</div>{% endfor %}
+    {% endwith %}
+    {% block contenido %}{% endblock %}
+  </main>
+</body>
+</html>
