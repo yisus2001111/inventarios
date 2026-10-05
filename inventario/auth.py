@@ -77,7 +77,8 @@ def antes_de_cada_peticion():
         if request.endpoint != "auth.configuracion_inicial":
             return redirect(url_for("auth.configuracion_inicial"))
         return None
-    if g.usuario is None and request.endpoint != "auth.login":
+    publica = (request.endpoint or "").startswith("publico.")
+    if g.usuario is None and request.endpoint != "auth.login" and not publica:
         return redirect(url_for("auth.login", siguiente=request.full_path))
     return None
 

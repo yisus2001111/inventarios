@@ -1,7 +1,13 @@
 """Vales de material para prácticas: préstamo a alumnos y devolución."""
 
-from flask import (Blueprint, abort, flash, g, redirect, render_template, request,
+import secrets
+import socket
+
+import qrcode
+import qrcode.image.svg
+from flask import (Blueprint, abort, flash, g, jsonify, redirect, render_template, request,
                    url_for)
+from markupsafe import Markup
 
 from . import db as base
 from .auth import requiere
@@ -9,6 +15,8 @@ from .db import ErrorInventario, ahora, get_db
 from .utiles import entero, respuesta_csv
 
 POR_PAGINA = 50
+ESTADOS = {"solicitado": "Por entregar", "abierto": "Entregado, pendiente de devolver",
+           "cerrado": "Cerrado", "rechazado": "Rechazado"}
 CAMPOS = ("alumno", "matricula", "materia", "maestro", "practica", "observaciones")
 OBLIGATORIOS = {"alumno": "nombre del alumno", "materia": "materia",
                 "maestro": "nombre del maestro", "practica": "nombre de la práctica"}
@@ -35,18 +43,24 @@ def pendientes_por_producto(db, producto_id):
     ).fetchone()[0]
 
 
-def crear_vale(db, datos, renglones, usuario):
-    """Crea el vale y descuenta el material del inventario.
+LARGO_MAXIMO = 150      # caracteres por campo de texto
+MAX_RENGLONES = 30
 
-    `renglones` es una lista de (texto_material, cantidad). Todo se hace en una sola
-    transacción: si algún renglón no es válido no se registra nada.
+
+def validar(db, datos, renglones, solo_disponible=False):
+    """Revisa los datos del vale. Devuelve [(producto, cantidad), ...] sin repetir productos.
+
+    `renglones` es una lista de (texto_material, cantidad); los renglones vacíos se ignoran.
+    Con `solo_disponible` se rechaza material desactivado o sin existencia suficiente
+    (se usa en las solicitudes de alumnos, que todavía no descuentan inventario).
     """
     faltan = [texto for campo, texto in OBLIGATORIOS.items() if not datos.get(campo)]
     if faltan:
         raise ErrorInventario("Falta: " + ", ".join(faltan) + ".")
+    if any(len(datos.get(c, "")) > LARGO_MAXIMO for c in CAMPOS):
+        raise ErrorInventario(f"Los campos de texto admiten máximo {LARGO_MAXIMO} caracteres.")
 
-    cantidades = {}  # producto_id -> cantidad (suma renglones repetidos)
-    orden = []
+    productos, cantidades = {}, {}  # producto_id -> fila / cantidad (suma repetidos)
     for texto, cantidad in renglones:
         if not (texto or "").strip():
             continue  # renglón vacío
@@ -57,24 +71,97 @@ def crear_vale(db, datos, renglones, usuario):
         n = entero(cantidad)
         if n is None or n <= 0:
             raise ErrorInventario(f"La cantidad de «{producto['nombre']}» debe ser mayor que cero.")
-        if producto["id"] not in cantidades:
-            orden.append(producto["id"])
+        productos[producto["id"]] = producto
         cantidades[producto["id"]] = cantidades.get(producto["id"], 0) + n
     if not cantidades:
         raise ErrorInventario("Agrega al menos un material al vale.")
+    if len(cantidades) > MAX_RENGLONES:
+        raise ErrorInventario(f"Un vale admite máximo {MAX_RENGLONES} materiales distintos.")
+    if solo_disponible:
+        for pid, n in cantidades.items():
+            p = productos[pid]
+            if not p["activo"] or p["stock"] <= 0:
+                raise ErrorInventario(f"«{p['nombre']}» no está disponible por ahora.")
+            if n > p["stock"]:
+                raise ErrorInventario(f"De «{p['nombre']}» solo hay {p['stock']} disponibles.")
+    return [(productos[pid], n) for pid, n in cantidades.items()]
 
+
+def insertar(db, datos, renglones, **columnas):
+    nombres = list(CAMPOS) + list(columnas)
     cur = db.execute(
-        f"""INSERT INTO vales ({', '.join(CAMPOS)}, fecha, usuario)
-            VALUES ({', '.join('?' * len(CAMPOS))}, ?, ?)""",
-        [datos.get(c, "") for c in CAMPOS] + [ahora(), usuario],
+        f"INSERT INTO vales ({', '.join(nombres)}) VALUES ({', '.join('?' * len(nombres))})",
+        [datos.get(c, "") for c in CAMPOS] + list(columnas.values()),
     )
-    vale_id = cur.lastrowid
-    motivo = f"Vale {folio(vale_id)} · {datos['alumno']} · {datos['practica']}"
-    for pid in orden:
+    for producto, n in renglones:
         db.execute("INSERT INTO vale_items (vale_id, producto_id, cantidad) VALUES (?, ?, ?)",
-                   (vale_id, pid, cantidades[pid]))
-        base.registrar_movimiento(db, pid, "baja", cantidades[pid], motivo, usuario)
+                   (cur.lastrowid, producto["id"], n))
+    return cur.lastrowid
+
+
+def descontar(db, vale_id, usuario):
+    """Saca del inventario el material del vale (al entregarlo)."""
+    vale = db.execute("SELECT alumno, practica FROM vales WHERE id = ?", (vale_id,)).fetchone()
+    motivo = f"Vale {folio(vale_id)} · {vale['alumno']} · {vale['practica']}"
+    for item in db.execute("SELECT producto_id, cantidad FROM vale_items WHERE vale_id = ? "
+                           "ORDER BY id", (vale_id,)).fetchall():
+        base.registrar_movimiento(db, item["producto_id"], "baja", item["cantidad"], motivo,
+                                  usuario)
+
+
+def crear_vale(db, datos, renglones, usuario):
+    """Vale capturado en el mostrador: se entrega y descuenta en el momento.
+
+    Todo ocurre en una sola transacción: si algún renglón no es válido no se registra nada.
+    """
+    renglones = validar(db, datos, renglones)
+    fecha = ahora()
+    vale_id = insertar(db, datos, renglones, fecha=fecha, usuario=usuario, estado="abierto",
+                       origen="mostrador", entregado_en=fecha, entregado_por=usuario)
+    descontar(db, vale_id, usuario)
     return vale_id
+
+
+def crear_solicitud(db, datos, renglones):
+    """Vale llenado por el alumno: queda en espera y no toca el inventario.
+
+    Devuelve (vale_id, token). El token es la clave secreta con la que el alumno
+    consulta el estado de su solicitud.
+    """
+    renglones = validar(db, datos, renglones, solo_disponible=True)
+    token = secrets.token_urlsafe(16)
+    vale_id = insertar(db, datos, renglones, fecha=ahora(), estado="solicitado",
+                       origen="alumno", token=token)
+    return vale_id, token
+
+
+def entregar(db, vale, cantidades, usuario):
+    """El encargado entrega una solicitud, pudiendo ajustar cantidades (0 = no se entrega)."""
+    if vale["estado"] != "solicitado":
+        raise ErrorInventario("Esta solicitud ya fue atendida.")
+    items = db.execute("SELECT id, cantidad FROM vale_items WHERE vale_id = ?",
+                       (vale["id"],)).fetchall()
+    finales = {i["id"]: cantidades.get(i["id"], i["cantidad"]) for i in items}
+    if any(n is None or n < 0 for n in finales.values()):
+        raise ErrorInventario("Las cantidades a entregar deben ser números enteros no negativos.")
+    if not any(finales.values()):
+        raise ErrorInventario("No se entregaría nada; si no procede, rechaza la solicitud.")
+    for item_id, n in finales.items():
+        if n == 0:
+            db.execute("DELETE FROM vale_items WHERE id = ?", (item_id,))
+        else:
+            db.execute("UPDATE vale_items SET cantidad = ? WHERE id = ?", (n, item_id))
+    db.execute("UPDATE vales SET estado = 'abierto', usuario = ?, entregado_en = ?, "
+               "entregado_por = ? WHERE id = ?", (usuario, ahora(), usuario, vale["id"]))
+    descontar(db, vale["id"], usuario)
+
+
+def rechazar(db, vale, motivo, usuario):
+    if vale["estado"] != "solicitado":
+        raise ErrorInventario("Esta solicitud ya fue atendida.")
+    db.execute("UPDATE vales SET estado = 'rechazado', motivo_rechazo = ?, cerrado_en = ?, "
+               "cerrado_por = ?, usuario = ? WHERE id = ?",
+               (motivo.strip()[:LARGO_MAXIMO], ahora(), usuario, usuario, vale["id"]))
 
 
 def devolver(db, vale, devoluciones, usuario):
@@ -83,7 +170,7 @@ def devolver(db, vale, devoluciones, usuario):
     Devuelve el total de piezas devueltas. Si ya no queda nada pendiente, cierra el vale.
     """
     if vale["estado"] != "abierto":
-        raise ErrorInventario("Este vale ya está cerrado.")
+        raise ErrorInventario("Este vale no tiene material pendiente de devolver.")
     items = {i["id"]: i for i in db.execute(
         """SELECT i.*, p.nombre FROM vale_items i JOIN productos p ON p.id = i.producto_id
            WHERE i.vale_id = ?""", (vale["id"],))}
@@ -123,12 +210,14 @@ def obtener_vale(vale_id):
 
 
 def consulta_vales():
-    estado = request.args.get("estado", "abierto")
+    estado = request.args.get("estado", "pendientes")
     q = request.args.get("q", "").strip()
     desde = request.args.get("desde", "")
     hasta = request.args.get("hasta", "")
     condiciones, params = [], []
-    if estado in ("abierto", "cerrado"):
+    if estado == "pendientes":
+        condiciones.append("v.estado IN ('solicitado', 'abierto')")
+    elif estado in ESTADOS:
         condiciones.append("v.estado = ?")
         params.append(estado)
     if q:
@@ -166,7 +255,8 @@ def lista():
                      WHERE i.vale_id = v.id) AS materiales,
                    (SELECT COALESCE(SUM(i.cantidad - i.devuelto), 0)
                       FROM vale_items i WHERE i.vale_id = v.id) AS pendiente
-            FROM vales v {where} ORDER BY v.id DESC LIMIT ? OFFSET ?""",
+            FROM vales v {where}
+            ORDER BY v.estado = 'solicitado' DESC, v.id DESC LIMIT ? OFFSET ?""",
         params + [POR_PAGINA, (pagina - 1) * POR_PAGINA],
     ).fetchall()
     return render_template("vales.html", vales=vales, total=total, pagina=pagina,
@@ -213,11 +303,79 @@ def nuevo():
 def detalle(vale_id):
     vale = obtener_vale(vale_id)
     items = get_db().execute(
-        """SELECT i.*, p.codigo, p.nombre, p.unidad FROM vale_items i
+        """SELECT i.*, p.codigo, p.nombre, p.unidad, p.stock FROM vale_items i
            JOIN productos p ON p.id = i.producto_id WHERE i.vale_id = ? ORDER BY i.id""",
         (vale_id,),
     ).fetchall()
-    return render_template("vale.html", vale=vale, items=items, folio=folio)
+    return render_template("vale.html", vale=vale, items=items, folio=folio, estados=ESTADOS)
+
+
+@bp.route("/<int:vale_id>/entregar", methods=["POST"])
+@requiere("operador")
+def entregar_vale(vale_id):
+    db = get_db()
+    vale = obtener_vale(vale_id)
+    cantidades = {}
+    for clave, valor in request.form.items():
+        if clave.startswith("entregar_"):
+            cantidades[entero(clave[len("entregar_"):])] = entero(valor or 0)
+    try:
+        entregar(db, vale, cantidades, g.usuario["usuario"])
+        db.commit()
+    except ErrorInventario as e:
+        db.rollback()
+        flash(str(e), "error")
+    else:
+        flash(f"Material entregado. El vale {folio(vale_id)} queda pendiente de devolver.", "ok")
+    return redirect(url_for("vales.detalle", vale_id=vale_id))
+
+
+@bp.route("/<int:vale_id>/rechazar", methods=["POST"])
+@requiere("operador")
+def rechazar_vale(vale_id):
+    db = get_db()
+    try:
+        rechazar(db, obtener_vale(vale_id), request.form.get("motivo", ""), g.usuario["usuario"])
+        db.commit()
+    except ErrorInventario as e:
+        flash(str(e), "error")
+    else:
+        flash("Solicitud rechazada. El alumno lo verá en su celular.", "ok")
+    return redirect(url_for("vales.detalle", vale_id=vale_id))
+
+
+@bp.route("/solicitudes.json")
+@requiere("operador")
+def contador_solicitudes():
+    n = get_db().execute("SELECT COUNT(*) FROM vales WHERE estado = 'solicitado'").fetchone()[0]
+    return jsonify(solicitudes=n)
+
+
+def url_publica():
+    """Dirección de la página para alumnos, tal como la deben abrir desde su celular.
+
+    Si el encargado entra como «localhost», esa dirección no sirve en otro equipo, así que
+    se sustituye por la IP de esta computadora en la red local.
+    """
+    url = url_for("publico.solicitud", _external=True)
+    host = request.host.split(":")[0]
+    if host in ("localhost", "127.0.0.1", "::1"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("10.255.255.255", 1))  # no envía nada; solo elige la interfaz
+                ip = s.getsockname()[0]
+            url = url.replace(request.host.split(":")[0], ip, 1)
+        except OSError:
+            pass
+    return url
+
+
+@bp.route("/qr")
+@requiere("operador")
+def qr():
+    url = url_publica()
+    imagen = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=12)
+    return render_template("qr.html", url=url, svg=Markup(imagen.to_string(encoding="unicode")))
 
 
 @bp.route("/<int:vale_id>/devolucion", methods=["POST"])
@@ -255,7 +413,7 @@ def cerrar_vale(vale_id):
     db = get_db()
     vale = obtener_vale(vale_id)
     if vale["estado"] != "abierto":
-        flash("Este vale ya está cerrado.", "error")
+        flash("Solo se puede cerrar un vale entregado y pendiente de devolver.", "error")
     else:
         cerrar(db, vale_id, g.usuario["usuario"])
         db.commit()
@@ -276,9 +434,11 @@ def exportar():
         "vales",
         ["folio", "fecha", "alumno", "matricula", "materia", "maestro", "practica",
          "numero_inventario", "material", "cantidad", "devuelto", "no_devuelto", "estado",
-         "registro", "observaciones"],
+         "origen", "entregado_en", "entregado_por", "observaciones", "motivo_rechazo"],
         [(folio(f["id"]), f["fecha"], f["alumno"], f["matricula"], f["materia"], f["maestro"],
           f["practica"], f["codigo"], f["material"], f["cantidad"], f["devuelto"],
-          f["cantidad"] - f["devuelto"], f["estado"], f["usuario"], f["observaciones"])
+          f["cantidad"] - f["devuelto"], ESTADOS[f["estado"]], f["origen"],
+          f["entregado_en"] or "", f["entregado_por"] or "", f["observaciones"],
+          f["motivo_rechazo"])
          for f in filas],
     )

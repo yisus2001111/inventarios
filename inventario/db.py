@@ -5,6 +5,32 @@ from datetime import datetime
 
 from flask import current_app, g
 
+# Estados de un vale:
+#   solicitado: lo llenó el alumno y espera a que el encargado entregue el material
+#   abierto:    material entregado, pendiente de devolver
+#   cerrado:    devuelto (o el resto se dio por consumido)
+#   rechazado:  el encargado no autorizó la solicitud
+VALES_DDL = """CREATE TABLE IF NOT EXISTS {nombre} (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    alumno         TEXT    NOT NULL,
+    matricula      TEXT    NOT NULL DEFAULT '',
+    materia        TEXT    NOT NULL,
+    maestro        TEXT    NOT NULL,
+    practica       TEXT    NOT NULL,
+    observaciones  TEXT    NOT NULL DEFAULT '',
+    fecha          TEXT    NOT NULL,
+    usuario        TEXT    NOT NULL DEFAULT '',
+    estado         TEXT    NOT NULL DEFAULT 'abierto'
+                   CHECK (estado IN ('solicitado', 'abierto', 'cerrado', 'rechazado')),
+    origen         TEXT    NOT NULL DEFAULT 'mostrador',
+    token          TEXT    UNIQUE,
+    entregado_en   TEXT,
+    entregado_por  TEXT,
+    cerrado_en     TEXT,
+    cerrado_por    TEXT,
+    motivo_rechazo TEXT    NOT NULL DEFAULT ''
+);"""
+
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS productos (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,21 +76,7 @@ CREATE TABLE IF NOT EXISTS cambios_ubicacion (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ubic_producto ON cambios_ubicacion(producto_id);
-CREATE TABLE IF NOT EXISTS vales (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    alumno        TEXT    NOT NULL,
-    matricula     TEXT    NOT NULL DEFAULT '',
-    materia       TEXT    NOT NULL,
-    maestro       TEXT    NOT NULL,
-    practica      TEXT    NOT NULL,
-    observaciones TEXT    NOT NULL DEFAULT '',
-    fecha         TEXT    NOT NULL,
-    usuario       TEXT    NOT NULL,
-    estado        TEXT    NOT NULL DEFAULT 'abierto' CHECK (estado IN ('abierto', 'cerrado')),
-    cerrado_en    TEXT,
-    cerrado_por   TEXT
-);
-
+{vales}
 CREATE TABLE IF NOT EXISTS vale_items (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     vale_id      INTEGER NOT NULL REFERENCES vales(id),
@@ -78,7 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_vale_items_producto ON vale_items(producto_id);
 CREATE INDEX IF NOT EXISTS idx_vales_fecha ON vales(fecha);
 CREATE INDEX IF NOT EXISTS idx_mov_producto ON movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
-"""
+""".replace("{vales}", VALES_DDL.format(nombre="vales"))
 
 
 class ErrorInventario(Exception):
@@ -104,7 +116,36 @@ def cerrar_db(_exc=None):
 
 
 def init_db():
-    get_db().executescript(ESQUEMA)
+    db = get_db()
+    migrar_vales(db)
+    db.executescript(ESQUEMA)
+
+
+def migrar_vales(db):
+    """Actualiza la tabla de vales de versiones anteriores (sin solicitudes de alumnos).
+
+    SQLite no permite modificar un CHECK, así que se reconstruye la tabla conservando
+    todos los datos.
+    """
+    fila = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vales'"
+                      ).fetchone()
+    if fila is None or "solicitado" in fila[0]:
+        return
+    columnas = ("id, alumno, matricula, materia, maestro, practica, observaciones, fecha, "
+                "usuario, estado, cerrado_en, cerrado_por")
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.executescript(f"""
+            BEGIN;
+            {VALES_DDL.format(nombre="vales_nueva")}
+            INSERT INTO vales_nueva ({columnas}, entregado_en, entregado_por)
+                SELECT {columnas}, fecha, usuario FROM vales;
+            DROP TABLE vales;
+            ALTER TABLE vales_nueva RENAME TO vales;
+            COMMIT;
+        """)
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
 
 
 def crear_producto(db, codigo, nombre, categoria="", ubicacion="", unidad="pza",

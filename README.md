@@ -75,23 +75,40 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 
 ## Vales de material
 
-1. El encargado entra a **Vales → + Nuevo vale** y captura los datos del alumno, la
-   materia, el maestro y la práctica. Materias, maestros y prácticas se autocompletan con
-   los que ya se usaron.
-2. Agrega el material: escribe el nombre o el número de inventario (o escanéalo con un
-   lector de código de barras; cada lectura agrega un renglón).
-3. **Registrar vale**: se asigna folio (`V-00001`, …) y el material se descuenta del inventario.
-   No se permite prestar más de lo que hay en existencia.
-4. Cuando el alumno regresa, abre el vale, indica cuánto devuelve de cada material y
-   presiona **Registrar devolución**. Al devolver todo, el vale se cierra solo.
-   Para consumibles que no regresan, usa **Cerrar sin devolver el resto**.
+### El alumno llena su vale desde el celular
 
-La lista de **Vales** muestra por defecto los pendientes de devolver, y permite buscar por
-folio, alumno, matrícula, maestro, materia, práctica o material, filtrar por fechas y
-exportar a CSV. Cada vale se puede **imprimir** (con líneas de firma) si se necesita.
+1. En **Vales → Código QR para alumnos** imprime el cartel y pégalo en el mostrador.
+2. El alumno escanea el QR (debe estar en la misma red que la computadora del programa),
+   llena nombre, matrícula, materia, maestro y práctica, y busca y agrega el material.
+   No necesita cuenta. Solo ve el material con existencia disponible.
+3. Al enviar recibe un **folio** (`V-00001`, …) y una página que muestra el estado de su
+   vale y se actualiza sola: *en espera*, *entregado* o *rechazado*. El celular recuerda
+   sus solicitudes recientes y su nombre para la próxima vez.
+4. En la computadora del encargado aparece un **aviso** y un contador junto a **Vales**.
+   Abre la solicitud, revisa o ajusta las cantidades (0 = no se entrega) y presiona
+   **Entregar material**. Hasta ese momento no se descuenta nada del inventario.
+   Si no procede, la **rechaza** indicando el motivo, que el alumno ve en su celular.
 
-Permisos: operadores y administradores capturan vales y devoluciones; el rol de consulta
-solo puede verlos.
+Para evitar abusos, un mismo celular puede tener máximo 3 solicitudes en espera.
+
+### Captura en el mostrador
+
+Para alumnos sin celular, el encargado puede seguir capturando el vale en
+**Vales → + Nuevo vale**; ese vale se entrega y descuenta en el momento.
+
+### Devoluciones
+
+Cuando el alumno regresa, abre el vale, indica cuánto devuelve de cada material y
+presiona **Registrar devolución**. Al devolver todo, el vale se cierra solo. Para
+consumibles que no regresan, usa **Cerrar sin devolver el resto**.
+
+La lista de **Vales** muestra primero las solicitudes por entregar y luego los vales
+pendientes de devolver. Permite buscar por folio, alumno, matrícula, maestro, materia,
+práctica o material, filtrar por estado y fechas, y exportar a CSV. Cada vale se puede
+**imprimir** (con líneas de firma) si se necesita.
+
+Permisos: operadores y administradores entregan, rechazan y capturan vales y
+devoluciones; el rol de consulta solo puede verlos.
 
 ## Cargar tu inventario actual
 

@@ -390,7 +390,7 @@ def test_cerrar_con_consumibles(client):
     assert "queda como consumido" in r.get_data(as_text=True)
     assert existencia(client, 1) == 6
     r = client.post("/vales/1/devolucion", data={"devolver_1": "1"}, follow_redirects=True)
-    assert "ya está cerrado" in r.get_data(as_text=True)
+    assert "no tiene material pendiente" in r.get_data(as_text=True)
 
 
 def test_no_desactivar_con_material_prestado(client):
@@ -424,3 +424,150 @@ def test_permisos_vales(client, app):
     assert c.get("/vales/nuevo").status_code == 403
     assert c.post("/vales/1/devolucion", data={"devolver_1": "1"}).status_code == 403
     assert c.post("/vales/1/cerrar").status_code == 403
+
+
+# ------------------------------------------------- solicitudes desde el celular
+
+
+def solicitar(c, renglones, **extra):
+    data = dict(DATOS_VALE, **extra)
+    data["material"] = [r[0] for r in renglones]
+    data["cantidad"] = [str(r[1]) for r in renglones]
+    return c.post("/solicitud/", data=data, follow_redirects=True)
+
+
+def test_alumno_solicita_sin_cuenta_y_no_descuenta(client, app):
+    nuevo(client, codigo="LAB-1", stock=10)
+    alumno = app.test_client()
+    html = alumno.get("/solicitud/").get_data(as_text=True)
+    assert "Solicitud de material" in html and "LAB-1" in html
+    r = solicitar(alumno, [("LAB-1", 3)])
+    html = r.get_data(as_text=True)
+    assert "V-00001" in html and "En espera" in html and 'http-equiv="refresh"' in html
+    assert existencia(client, 1) == 10
+    # el alumno no puede ver nada del sistema interno
+    assert alumno.get("/vales/1").status_code == 302
+    assert alumno.get("/").status_code == 302
+    # aparece al encargado como por entregar
+    assert "por entregar" in client.get("/vales/").get_data(as_text=True)
+    assert client.get("/vales/solicitudes.json").get_json() == {"solicitudes": 1}
+
+
+def test_entregar_solicitud_ajustando_cantidades(client, app):
+    nuevo(client, codigo="LAB-1", stock=10)
+    nuevo(client, codigo="LAB-2", stock=4)
+    alumno = app.test_client()
+    r = solicitar(alumno, [("LAB-1", 3), ("LAB-2", 2)])
+    token = r.request.path.rsplit("/", 1)[1]
+    r = client.post("/vales/1/entregar", data={"entregar_1": "2", "entregar_2": "0"},
+                    follow_redirects=True)
+    assert "Material entregado" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 8 and existencia(client, 2) == 4
+    html = alumno.get(f"/solicitud/{token}").get_data(as_text=True)
+    assert "Material entregado" in html and "2 × Producto LAB-1" in html
+    assert "LAB-2" not in html and 'http-equiv="refresh"' not in html
+    r = client.post("/vales/1/entregar", data={"entregar_1": "1"}, follow_redirects=True)
+    assert "ya fue atendida" in r.get_data(as_text=True)
+    # y se devuelve como cualquier vale
+    client.post("/vales/1/devolucion", data={"devolver_1": "2"})
+    assert existencia(client, 1) == 10
+
+
+def test_entregar_sin_existencia_falla_sin_cambios(client, app):
+    nuevo(client, codigo="LAB-1", stock=3)
+    solicitar(app.test_client(), [("LAB-1", 3)])
+    vale(client, [("LAB-1", 2)])  # mientras tanto se prestó en mostrador
+    r = client.post("/vales/1/entregar", data={"entregar_1": "3"}, follow_redirects=True)
+    assert "No hay existencia suficiente" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 1
+    assert "por entregar" in client.get("/vales/").get_data(as_text=True)
+
+
+def test_entregar_todo_en_cero_pide_rechazar(client, app):
+    nuevo(client, codigo="LAB-1", stock=3)
+    solicitar(app.test_client(), [("LAB-1", 1)])
+    r = client.post("/vales/1/entregar", data={"entregar_1": "0"}, follow_redirects=True)
+    assert "rechaza la solicitud" in r.get_data(as_text=True)
+
+
+def test_rechazar_solicitud(client, app):
+    nuevo(client, codigo="LAB-1", stock=3)
+    alumno = app.test_client()
+    token = solicitar(alumno, [("LAB-1", 1)]).request.path.rsplit("/", 1)[1]
+    client.post("/vales/1/rechazar", data={"motivo": "Falta firma del maestro"})
+    html = alumno.get(f"/solicitud/{token}").get_data(as_text=True)
+    assert "Solicitud rechazada" in html and "Falta firma del maestro" in html
+    assert existencia(client, 1) == 3
+
+
+def test_solicitud_valida_existencia_y_datos(client, app):
+    nuevo(client, codigo="LAB-1", stock=2)
+    alumno = app.test_client()
+    assert "solo hay 2 disponibles" in solicitar(alumno, [("LAB-1", 5)]).get_data(as_text=True)
+    r = solicitar(alumno, [("LAB-1", 1)], alumno="x" * 200)
+    assert "máximo 150 caracteres" in r.get_data(as_text=True)
+    client.post("/productos/1/movimiento", data={"tipo": "baja", "cantidad": 2})
+    assert "no está disponible" in solicitar(alumno, [("LAB-1", 1)]).get_data(as_text=True)
+
+
+def test_limite_de_solicitudes_en_espera_y_mis_solicitudes(client, app):
+    nuevo(client, codigo="LAB-1", stock=50)
+    alumno = app.test_client()
+    for _ in range(3):
+        solicitar(alumno, [("LAB-1", 1)])
+    r = solicitar(alumno, [("LAB-1", 1)])
+    assert "Ya tienes 3 solicitudes en espera" in r.get_data(as_text=True)
+    html = alumno.get("/solicitud/").get_data(as_text=True)
+    assert "Mis solicitudes recientes (3)" in html
+    assert 'value="María López"' in html  # recuerda el nombre del alumno
+
+
+def test_token_de_solicitud_no_adivinable(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    solicitar(app.test_client(), [("LAB-1", 1)])
+    assert app.test_client().get("/solicitud/1").status_code == 404
+
+
+def test_qr_para_alumnos(client, app):
+    r = client.get("/vales/qr")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "<svg" in html and "/solicitud/" in html
+    crear_usuario(client, "vero", "consulta")
+    assert entrar(app, "vero").get("/vales/qr").status_code == 403
+
+
+def test_migra_base_de_datos_de_version_anterior(tmp_path):
+    import sqlite3
+    ruta = tmp_path / "vieja.db"
+    con = sqlite3.connect(ruta)
+    con.executescript("""
+        CREATE TABLE productos (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL, categoria TEXT NOT NULL DEFAULT '', ubicacion TEXT NOT NULL DEFAULT '',
+            unidad TEXT NOT NULL DEFAULT 'pza', stock INTEGER NOT NULL DEFAULT 0,
+            stock_minimo INTEGER NOT NULL DEFAULT 0, activo INTEGER NOT NULL DEFAULT 1, creado_en TEXT NOT NULL);
+        CREATE TABLE vales (id INTEGER PRIMARY KEY AUTOINCREMENT, alumno TEXT NOT NULL,
+            matricula TEXT NOT NULL DEFAULT '', materia TEXT NOT NULL, maestro TEXT NOT NULL,
+            practica TEXT NOT NULL, observaciones TEXT NOT NULL DEFAULT '', fecha TEXT NOT NULL,
+            usuario TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'abierto'
+            CHECK (estado IN ('abierto', 'cerrado')), cerrado_en TEXT, cerrado_por TEXT);
+        CREATE TABLE vale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, vale_id INTEGER NOT NULL REFERENCES vales(id),
+            producto_id INTEGER NOT NULL REFERENCES productos(id), cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+            devuelto INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO productos (codigo, nombre, stock, creado_en) VALUES ('LAB-1', 'Matraz', 5, '2026-01-01');
+        INSERT INTO vales (alumno, materia, maestro, practica, fecha, usuario)
+            VALUES ('Ana', 'Física', 'Dr. X', 'Péndulo', '2026-01-02 10:00:00', 'luis');
+        INSERT INTO vale_items (vale_id, producto_id, cantidad) VALUES (1, 1, 2);
+    """)
+    con.commit()
+    con.close()
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": str(ruta)})
+    c = app.test_client()
+    c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "secreta1",
+                                          "confirmacion": "secreta1"})
+    html = c.get("/vales/1").get_data(as_text=True)
+    assert "Ana" in html and "Péndulo" in html and "Matraz" in html
+    assert "2026-01-02 10:00:00 por luis" in html  # entregado = fecha original
+    c.post("/vales/1/devolucion", data={"devolver_1": "2"})
+    assert existencia(c, 1) == 7
+    # ya admite solicitudes de alumnos
+    assert "V-00002" in solicitar(app.test_client(), [("LAB-1", 1)]).get_data(as_text=True)

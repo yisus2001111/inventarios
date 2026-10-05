@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}Inventario{% endblock %} · Inventario interno</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block cabeza %}{% endblock %}
 </head>
 <body>
   <header class="barra">
-    <a class="marca" href="{{ url_for('index') }}">Inventario interno</a>
+    <a class="marca" href="{{ url_for('index') if usuario else url_for('publico.solicitud') }}">Inventario interno</a>
     {% if usuario %}
     <nav>
-      <a href="{{ url_for('vales.lista') }}">Vales</a>
+      {% set en_espera = solicitudes_en_espera() %}
+      <a href="{{ url_for('vales.lista') }}">Vales <span id="contador-solicitudes" class="contador" {{ 'hidden' if not en_espera }} title="Solicitudes de alumnos por entregar">{{ en_espera }}</span></a>
       <a href="{{ url_for('index') }}">Productos</a>
       {% if puede('operador') %}<a href="{{ url_for('movimiento_rapido') }}">Alta / baja rápida</a>{% endif %}
       <a href="{{ url_for('movimientos') }}">Historial</a>
@@ -33,5 +35,32 @@
     {% block contenido %}{% endblock %}
     {% if usuario %}<datalist id="ubicaciones">{% for u in lista_ubicaciones() %}<option value="{{ u }}">{% endfor %}</datalist>{% endif %}
   </main>
+  {% if usuario and puede('operador') %}
+  <script>
+    // Avisa al encargado cuando llegan solicitudes nuevas de alumnos.
+    (() => {
+      const contador = document.getElementById('contador-solicitudes');
+      let anterior = +contador.textContent;
+      setInterval(async () => {
+        try {
+          const r = await fetch('{{ url_for('vales.contador_solicitudes') }}');
+          if (!r.ok) return;
+          const n = (await r.json()).solicitudes;
+          contador.textContent = n; contador.hidden = !n;
+          if (n > anterior) {
+            document.title = '(' + n + ') ' + document.title.replace(/^\(\d+\) /, '');
+            let aviso = document.getElementById('aviso-solicitud');
+            if (!aviso) {
+              aviso = Object.assign(document.createElement('a'), {id: 'aviso-solicitud', className: 'aviso-flotante', href: '{{ url_for('vales.lista', estado='solicitado') }}'});
+              document.body.append(aviso);
+            }
+            aviso.textContent = 'Nueva solicitud de material (' + n + ' por entregar). Ver →';
+          }
+          anterior = n;
+        } catch (e) {}
+      }, 15000);
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

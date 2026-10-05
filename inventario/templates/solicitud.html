@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block titulo %}Solicitar material{% endblock %}
+{% block contenido %}
+<div class="movil">
+<h1>Solicitud de material</h1>
+<p class="nota">Llena tu vale y preséntate en el mostrador con tu folio para recibir el material.</p>
+
+{% if mis %}
+<details class="mis" {{ 'open' if mis|selectattr('estado', 'equalto', 'solicitado')|list }}>
+  <summary>Mis solicitudes recientes ({{ mis|length }})</summary>
+  <ul>
+  {% for s in mis %}
+    <li><a href="{{ url_for('publico.estado', token=s.token) }}">{{ folio(s.id) }} · {{ s.practica }}</a>
+      <span class="etiqueta {{ s.estado }}">{{ {'solicitado':'en espera','abierto':'entregado','cerrado':'cerrado','rechazado':'rechazado'}[s.estado] }}</span></li>
+  {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+<form method="post" id="solicitud" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label class="completo">Nombre completo *<input name="alumno" required maxlength="150" autocomplete="name" value="{{ form.get('alumno') or previo.get('alumno', '') }}"></label>
+  <label class="completo">Matrícula<input name="matricula" maxlength="150" value="{{ form.get('matricula') or previo.get('matricula', '') }}"></label>
+  <label class="completo">Materia *<input name="materia" required maxlength="150" list="materias" value="{{ form.get('materia', '') }}"></label>
+  <label class="completo">Nombre del maestro *<input name="maestro" required maxlength="150" list="maestros" value="{{ form.get('maestro', '') }}"></label>
+  <label class="completo">Nombre de la práctica *<input name="practica" required maxlength="150" list="practicas" value="{{ form.get('practica', '') }}"></label>
+
+  <fieldset class="completo materiales">
+    <legend>Material</legend>
+    <input type="search" id="buscar" placeholder="Busca por nombre o número de inventario" autocomplete="off">
+    <ul id="resultados" class="resultados"></ul>
+    <p class="nota" id="vacio">Aún no agregas material.</p>
+    <ul id="elegidos" class="elegidos"></ul>
+  </fieldset>
+
+  <label class="completo">Observaciones<input name="observaciones" maxlength="150" value="{{ form.get('observaciones', '') }}"></label>
+  <div class="acciones completo"><button class="grande">Enviar solicitud</button></div>
+</form>
+</div>
+
+<datalist id="materias">{% for m in materias %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="maestros">{% for m in maestros %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="practicas">{% for m in practicas %}<option value="{{ m }}">{% endfor %}</datalist>
+
+<script>
+  const MATERIALES = {{ materiales|tojson }};
+  const PREVIOS = {{ seleccion|tojson }};
+  const normal = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const buscar = document.getElementById('buscar'), resultados = document.getElementById('resultados');
+  const elegidos = document.getElementById('elegidos'), vacio = document.getElementById('vacio');
+
+  function el(tag, props = {}, ...hijos) {
+    const e = Object.assign(document.createElement(tag), props);
+    hijos.forEach(h => e.append(h));
+    return e;
+  }
+  function actualizar() { vacio.hidden = elegidos.children.length > 0; }
+
+  function agregar(m, cantidad = 1) {
+    const ya = elegidos.querySelector('[data-c="' + CSS.escape(m.c) + '"] input[name=cantidad]');
+    if (ya) { ya.value = Math.min(+ya.value + 1, m.s); ya.focus(); return; }
+    const cant = el('input', {type: 'number', name: 'cantidad', min: 1, max: m.s, value: Math.min(cantidad, m.s), required: true, inputMode: 'numeric'});
+    const quitar = el('button', {type: 'button', className: 'secundario', textContent: 'Quitar'});
+    const li = el('li', {}, el('input', {type: 'hidden', name: 'material', value: m.c}),
+      el('div', {className: 'info'}, el('strong', {textContent: m.n}), el('small', {textContent: 'No. inv. ' + m.c + ' · hay ' + m.s + ' ' + m.u})),
+      el('label', {className: 'cant'}, 'Cant.', cant), quitar);
+    li.dataset.c = m.c;
+    quitar.onclick = () => { li.remove(); actualizar(); };
+    elegidos.append(li);
+    actualizar();
+  }
+
+  buscar.addEventListener('input', () => {
+    resultados.innerHTML = '';
+    const q = normal(buscar.value.trim());
+    if (q.length < 2) return;
+    MATERIALES.filter(m => normal(m.n + ' ' + m.c).includes(q)).slice(0, 15).forEach(m => {
+      const b = el('button', {type: 'button'}, el('span', {textContent: m.n}), el('small', {textContent: m.c + ' · hay ' + m.s}));
+      b.onclick = () => { agregar(m); buscar.value = ''; resultados.innerHTML = ''; };
+      resultados.append(el('li', {}, b));
+    });
+    if (!resultados.children.length) resultados.append(el('li', {className: 'nota', textContent: 'Sin resultados (o no hay existencia).'}));
+  });
+  buscar.addEventListener('keydown', e => {  // Enter elige el primer resultado
+    if (e.key === 'Enter') { e.preventDefault(); resultados.querySelector('button')?.click(); }
+  });
+  document.getElementById('solicitud').addEventListener('submit', e => {
+    if (!elegidos.children.length) { e.preventDefault(); alert('Agrega al menos un material.'); buscar.focus(); }
+  });
+  PREVIOS.forEach(p => { const m = MATERIALES.find(x => x.c === p.c); if (m) agregar(m, +p.q || 1); });
+  actualizar();
+</script>
+{% endblock %}

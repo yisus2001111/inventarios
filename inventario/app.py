@@ -9,7 +9,7 @@ from datetime import timedelta
 from flask import (Flask, abort, flash, g, redirect, render_template,
                    request, url_for)
 
-from . import auth, vales
+from . import auth, publico, vales
 from . import db as base
 from .auth import requiere
 from .db import ErrorInventario, get_db
@@ -65,12 +65,18 @@ def create_app(config=None):
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(vales.bp)
+    app.register_blueprint(publico.bp)
     app.before_request(auth.antes_de_cada_peticion)
 
     @app.context_processor
     def utilidades_plantillas():
         return {"puede": auth.puede, "csrf_token": auth.token_csrf, "usuario": g.get("usuario"),
-                "lista_ubicaciones": lista_ubicaciones}
+                "lista_ubicaciones": lista_ubicaciones,
+                "solicitudes_en_espera": solicitudes_en_espera}
+
+    def solicitudes_en_espera():
+        return get_db().execute(
+            "SELECT COUNT(*) FROM vales WHERE estado = 'solicitado'").fetchone()[0]
 
     def lista_ubicaciones():
         return [r[0] for r in get_db().execute(

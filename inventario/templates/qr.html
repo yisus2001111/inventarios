@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titulo %}Código QR para alumnos{% endblock %}
+{% block contenido %}
+<div class="cartel">
+  <h1>Solicita tu material</h1>
+  <p>Escanea con la cámara de tu celular</p>
+  <div class="qr">{{ svg }}</div>
+  <p class="url">{{ url }}</p>
+  <p class="nota">Debes estar conectado a la red de la universidad.</p>
+</div>
+<div class="acciones no-imprimir">
+  <button onclick="window.print()">Imprimir cartel</button>
+  <a href="{{ url_for('vales.lista') }}">Volver a vales</a>
+</div>
+<p class="nota no-imprimir">Pega este cartel en el mostrador. Si la dirección no abre desde un celular,
+  revisa que la computadora y los celulares estén en la misma red y que el firewall de Windows permita el programa.</p>
+{% endblock %}

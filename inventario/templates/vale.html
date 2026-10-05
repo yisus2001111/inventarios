@@ -16,8 +16,8 @@
       <h1>Folio {{ folio(vale.id) }}</h1>
     </div>
     <div class="derecha">
-      {% if vale.estado == 'abierto' %}<span class="etiqueta pendiente">Pendiente de devolver</span>
-      {% else %}<span class="etiqueta cerrado">Cerrado</span>{% endif %}
+      <span class="etiqueta {{ 'pendiente' if vale.estado == 'abierto' else vale.estado }}">{{ estados[vale.estado] }}</span>
+      {% if vale.origen == 'alumno' %}<p class="nota">Solicitado por el alumno en línea</p>{% endif %}
     </div>
   </header>
   <dl class="datos">
@@ -27,8 +27,9 @@
     <div><dt>Materia</dt><dd>{{ vale.materia }}</dd></div>
     <div><dt>Maestro</dt><dd>{{ vale.maestro }}</dd></div>
     <div><dt>Práctica</dt><dd>{{ vale.practica }}</dd></div>
-    <div><dt>Registró</dt><dd>{{ vale.usuario }}</dd></div>
+    {% if vale.entregado_en %}<div><dt>Entregado</dt><dd>{{ vale.entregado_en }} por {{ vale.entregado_por }}</dd></div>{% endif %}
     {% if vale.estado == 'cerrado' %}<div><dt>Cerrado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}</dd></div>{% endif %}
+    {% if vale.estado == 'rechazado' %}<div><dt>Rechazado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}{% if vale.motivo_rechazo %}: {{ vale.motivo_rechazo }}{% endif %}</dd></div>{% endif %}
   </dl>
   {% if vale.observaciones %}<p><strong>Observaciones:</strong> {{ vale.observaciones }}</p>{% endif %}
 
@@ -36,7 +37,11 @@
   <form method="post" action="{{ url_for('vales.devolucion', vale_id=vale.id) }}" id="devolucion"><input type="hidden" name="csrf" value="{{ csrf_token() }}"></form>
   <div class="tabla-scroll">
   <table>
-    <thead><tr><th class="num">Cantidad</th><th>Material</th><th>No. de inventario</th><th class="num">Devuelto</th><th class="num">{{ 'Pendiente' if vale.estado == 'abierto' else 'No devuelto' }}</th>
+    {% set solicitado = vale.estado == 'solicitado' %}
+    {% set atender = solicitado and puede('operador') %}
+    <thead><tr><th class="num">{{ 'Solicitado' if solicitado else 'Cantidad' }}</th><th>Material</th><th>No. de inventario</th>
+      {% if solicitado %}<th class="num">Existencia</th>{% if atender %}<th class="num no-imprimir">Entregar</th>{% endif %}
+      {% elif vale.estado != 'rechazado' %}<th class="num">Devuelto</th><th class="num">{{ 'Pendiente' if vale.estado == 'abierto' else 'No devuelto' }}</th>{% endif %}
       {% if abierto %}<th class="num no-imprimir">Devolver ahora</th>{% endif %}</tr></thead>
     <tbody>
     {% for i in items %}
@@ -45,8 +50,13 @@
         <td class="num">{{ i.cantidad }} {{ i.unidad }}</td>
         <td><a href="{{ url_for('producto_detalle', pid=i.producto_id) }}">{{ i.nombre }}</a></td>
         <td>{{ i.codigo }}</td>
-        <td class="num">{{ i.devuelto }}</td>
-        <td class="num">{{ pendiente }}</td>
+        {% if solicitado %}
+          <td class="num {{ 'falta' if i.stock < i.cantidad }}">{{ i.stock }}</td>
+          {% if atender %}<td class="num no-imprimir"><input class="devolver" type="number" name="entregar_{{ i.id }}" min="0" value="{{ [i.cantidad, i.stock]|min }}" form="entrega"></td>{% endif %}
+        {% elif vale.estado != 'rechazado' %}
+          <td class="num">{{ i.devuelto }}</td>
+          <td class="num">{{ pendiente }}</td>
+        {% endif %}
         {% if abierto %}<td class="num no-imprimir">{% if pendiente %}<input class="devolver" type="number" name="devolver_{{ i.id }}" min="0" max="{{ pendiente }}" value="{{ pendiente }}" form="devolucion">{% endif %}</td>{% endif %}
       </tr>
     {% endfor %}
@@ -57,6 +67,19 @@
     <div>Firma del alumno</div><div>Entregó</div>
   </div>
 </article>
+
+{% if atender %}
+<form method="post" action="{{ url_for('vales.entregar_vale', vale_id=vale.id) }}" id="entrega"><input type="hidden" name="csrf" value="{{ csrf_token() }}"></form>
+<div class="acciones no-imprimir">
+  <button form="entrega" class="grande">Entregar material</button>
+</div>
+<p class="nota no-imprimir">Revisa las cantidades antes de entregar; pon 0 en lo que no se vaya a prestar.
+  Al entregar, el material se descuenta del inventario.</p>
+<form method="post" action="{{ url_for('vales.rechazar_vale', vale_id=vale.id) }}" class="rechazo no-imprimir"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input name="motivo" maxlength="150" placeholder="Motivo del rechazo (el alumno lo verá)">
+  <button class="peligro" onclick="return confirm('¿Rechazar esta solicitud?')">Rechazar solicitud</button>
+</form>
+{% endif %}
 
 {% if abierto %}
 <div class="acciones no-imprimir">

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block titulo %}Vale {{ folio(vale.id) }}{% endblock %}
+{% block cabeza %}{% if vale.estado == 'solicitado' %}<meta http-equiv="refresh" content="15">{% endif %}{% endblock %}
+{% block contenido %}
+<div class="movil">
+<div class="estado-vale {{ vale.estado }}">
+  <p>Tu folio</p>
+  <strong class="folio">{{ folio(vale.id) }}</strong>
+  {% if vale.estado == 'solicitado' %}
+    <p><b>En espera.</b> Muestra este folio en el mostrador para recibir tu material.</p>
+    <p class="nota">Esta página se actualiza sola.</p>
+  {% elif vale.estado == 'abierto' %}
+    <p><b>Material entregado</b> el {{ vale.entregado_en[:16] }}. Devuélvelo al terminar tu práctica.</p>
+  {% elif vale.estado == 'cerrado' %}
+    <p><b>Vale cerrado.</b> ¡Gracias!</p>
+  {% else %}
+    <p><b>Solicitud rechazada.</b>{% if vale.motivo_rechazo %} Motivo: {{ vale.motivo_rechazo }}{% endif %}</p>
+  {% endif %}
+</div>
+
+<dl class="datos-movil">
+  <dt>Fecha</dt><dd>{{ vale.fecha[:16] }}</dd>
+  <dt>Alumno</dt><dd>{{ vale.alumno }}{% if vale.matricula %} ({{ vale.matricula }}){% endif %}</dd>
+  <dt>Materia</dt><dd>{{ vale.materia }}</dd>
+  <dt>Maestro</dt><dd>{{ vale.maestro }}</dd>
+  <dt>Práctica</dt><dd>{{ vale.practica }}</dd>
+</dl>
+<ul class="elegidos">
+{% for i in items %}
+  <li><div class="info"><strong>{{ i.cantidad }} × {{ i.nombre }}</strong><small>No. inv. {{ i.codigo }}{% if vale.estado == 'abierto' and i.devuelto %} · devuelto {{ i.devuelto }}{% endif %}</small></div></li>
+{% endfor %}
+</ul>
+<p class="nota">Guarda esta página (o tómale captura) para consultar tu vale.</p>
+<p><a class="boton secundario" href="{{ url_for('publico.solicitud') }}">Hacer otra solicitud</a></p>
+</div>
+{% endblock %}

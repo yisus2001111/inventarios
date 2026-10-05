@@ -125,3 +125,50 @@ input.devolver { width: 90px; text-align: right; }
   .solo-imprimir.firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 64px; }
   .firmas div { border-top: 1px solid #000; text-align: center; padding-top: 4px; }
 }
+
+/* ---- solicitudes de alumnos ---- */
+.contador { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: #f5a524; color: #1f2328; font-size: .8rem; font-weight: 700; text-align: center; }
+.contador[hidden] { display: none; }
+.aviso-flotante { position: fixed; right: 16px; bottom: 16px; z-index: 10; background: #f5a524; color: #1f2328; font-weight: 600; padding: 12px 16px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.2); text-decoration: none; }
+.etiqueta.solicitado { background: #fde7c2; color: #8a4b00; text-decoration: none; }
+.etiqueta.abierto { background: var(--ok-fondo); color: var(--ok); }
+.etiqueta.rechazado { background: var(--error-fondo); color: var(--error); }
+tr.resaltar td { background: #fff8e8; }
+td.falta { color: var(--error); font-weight: 700; }
+button.grande { padding: 11px 20px; font-size: 1.05rem; }
+.rechazo { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; max-width: 640px; }
+.rechazo input { flex: 1 1 260px; width: auto; }
+
+.movil { max-width: 560px; margin: 0 auto; }
+.movil .formulario { grid-template-columns: 1fr; }
+.movil input, .movil button { font-size: 16px; }  /* evita el zoom automático en iPhone */
+.movil .acciones button { width: 100%; }
+.materiales input[type=search] { margin-bottom: 6px; }
+.resultados, .elegidos { list-style: none; margin: 0; padding: 0; }
+.resultados li button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; background: var(--panel); color: var(--texto); border: 1px solid var(--borde); margin-bottom: 4px; }
+.resultados li button small { color: var(--suave); }
+.elegidos li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid #eceef1; }
+.elegidos .info { flex: 1 1 200px; display: flex; flex-direction: column; }
+.elegidos .info small { color: var(--suave); }
+.elegidos .cant { display: flex; flex-direction: row; align-items: center; gap: 6px; font-weight: 500; }
+.elegidos .cant input { width: 80px; }
+.movil .elegidos button { width: auto; }
+details.mis { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+details.mis summary { cursor: pointer; font-weight: 600; }
+details.mis li { margin: 6px 0; }
+
+.estado-vale { text-align: center; border-radius: 10px; padding: 18px; margin-bottom: 16px; border: 2px solid var(--borde); background: var(--panel); }
+.estado-vale.solicitado { border-color: #f5a524; background: #fff8e8; }
+.estado-vale.abierto { border-color: #7cc48f; background: var(--ok-fondo); }
+.estado-vale.rechazado { border-color: #f4b8b2; background: var(--error-fondo); }
+.estado-vale .folio { display: block; font-size: 2.6rem; letter-spacing: 1px; margin: 4px 0 10px; }
+.estado-vale p { margin: 4px 0; }
+.datos-movil { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 12px; }
+.datos-movil dt { color: var(--suave); }
+.datos-movil dd { margin: 0; font-weight: 600; }
+
+.cartel { text-align: center; background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 24px; max-width: 560px; margin: 0 auto; }
+.cartel h1 { font-size: 2rem; }
+.cartel .qr svg { width: 320px; height: 320px; max-width: 100%; }
+.cartel .url { font-family: monospace; font-size: 1.1rem; word-break: break-all; }
+@media print { .cartel { border: 0; max-width: none; } .cartel h1 { font-size: 2.6rem; } .cartel .qr svg { width: 420px; height: 420px; } }
