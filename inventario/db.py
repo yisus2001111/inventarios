@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS usuarios (
     creado_en   TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cambios_ubicacion (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id  INTEGER NOT NULL REFERENCES productos(id),
+    anterior     TEXT    NOT NULL,
+    nueva        TEXT    NOT NULL,
+    usuario      TEXT    NOT NULL,
+    fecha        TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ubic_producto ON cambios_ubicacion(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_producto ON movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
 """
@@ -136,3 +146,20 @@ def registrar_movimiento(db, producto_id, tipo, cantidad, motivo="", responsable
         (producto_id, tipo, cantidad, nuevo, motivo.strip(), responsable.strip(), ahora()),
     )
     return nuevo
+
+
+def cambiar_ubicacion(db, producto_id, nueva, usuario):
+    """Cambia la ubicación de un producto y deja registro. Devuelve True si cambió."""
+    nueva = (nueva or "").strip()
+    fila = db.execute("SELECT ubicacion FROM productos WHERE id = ?", (producto_id,)).fetchone()
+    if fila is None:
+        raise ErrorInventario("El producto no existe.")
+    if fila["ubicacion"] == nueva:
+        return False
+    db.execute("UPDATE productos SET ubicacion = ? WHERE id = ?", (nueva, producto_id))
+    db.execute(
+        """INSERT INTO cambios_ubicacion (producto_id, anterior, nueva, usuario, fecha)
+           VALUES (?, ?, ?, ?, ?)""",
+        (producto_id, fila["ubicacion"], nueva, usuario, ahora()),
+    )
+    return True

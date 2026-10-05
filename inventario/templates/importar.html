@@ -3,13 +3,21 @@
 {% block contenido %}
 <h1>Importar productos desde CSV</h1>
 <p>Sirve para cargar de una vez tu inventario actual (por ejemplo, exportado de Excel como CSV).
-  Columnas: <code>codigo</code>, <code>nombre</code> (obligatorias), <code>categoria</code>, <code>ubicacion</code>,
+  Columnas: <code>codigo</code> (obligatoria), <code>nombre</code> (obligatoria para productos nuevos), <code>categoria</code>, <code>ubicacion</code>,
   <code>unidad</code>, <code>stock</code>, <code>stock_minimo</code>. Separador coma o punto y coma.
   <a href="{{ url_for('plantilla') }}">Descargar plantilla</a>.</p>
 <ul class="nota">
   <li>Códigos nuevos: se crean con su existencia inicial, registrada como alta.</li>
-  <li>Códigos que ya existen: se actualizan sus datos, pero <strong>no</strong> la existencia (usa altas/bajas para eso).</li>
+  <li>Códigos que ya existen: se actualizan <strong>solo las columnas que traiga el archivo</strong>
+    (nombre, categoría, ubicación, unidad, stock mínimo). La existencia <strong>no</strong> se cambia; usa altas/bajas para eso.</li>
 </ul>
+<h2>Actualizar datos en Excel (por ejemplo, ubicaciones)</h2>
+<ol>
+  <li><a href="{{ url_for('exportar_productos') }}">Exporta los productos actuales</a>.</li>
+  <li>Ábrelo en Excel y cambia lo que necesites (ubicación, nombre, categoría…). No cambies el código.</li>
+  <li>Guárdalo como CSV y súbelo aquí. Los cambios de ubicación quedan en el historial de cada producto.</li>
+</ol>
+<p class="nota">También puedes subir un archivo con solo las columnas <code>codigo</code> y <code>ubicacion</code> para reubicar en bloque.</p>
 <form method="post" enctype="multipart/form-data" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label>Archivo CSV<input type="file" name="archivo" accept=".csv,text/csv" required></label>
   <div class="acciones completo"><button>Importar</button></div>

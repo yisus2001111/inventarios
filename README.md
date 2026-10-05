@@ -18,6 +18,8 @@ de la red puede usarla. Los datos se guardan en un único archivo SQLite (`inven
 - **Importar CSV** para cargar el inventario inicial (por ejemplo, desde Excel) y
   **exportar CSV** de productos y movimientos.
 - **Desactivar** productos que ya no se usan (solo si su existencia es 0), sin perder su historial.
+- **Cambiar de lugar**: cambiar la ubicación de un producto o de varios a la vez
+  (marcándolos en la lista), con historial de cada cambio (de dónde, a dónde, quién y cuándo).
 - **Usuarios con contraseña y permisos**: cada movimiento queda firmado con el usuario que lo hizo.
 
 La existencia solo cambia mediante movimientos de alta/baja, así siempre queda registro
@@ -54,11 +56,11 @@ guarda en el archivo `.clave_secreta` junto a la base de datos. No lo compartas.
 La primera vez que abras el programa te pedirá crear la cuenta del **administrador**.
 Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 
-| Rol               | Ver y exportar | Altas / bajas de existencia | Productos, importar y usuarios |
-|-------------------|:--------------:|:---------------------------:|:------------------------------:|
-| **Consulta**      | ✔              |                             |                                |
-| **Operador**      | ✔              | ✔                           |                                |
-| **Administrador** | ✔              | ✔                           | ✔                              |
+| Rol               | Ver y exportar | Altas / bajas y cambiar ubicación | Productos, importar y usuarios |
+|-------------------|:--------------:|:---------------------------------:|:------------------------------:|
+| **Consulta**      | ✔              |                                   |                                |
+| **Operador**      | ✔              | ✔                                 |                                |
+| **Administrador** | ✔              | ✔                                 | ✔                              |
 
 - Sin iniciar sesión no se puede ver ni modificar nada.
 - Cada quien cambia su contraseña haciendo clic en su nombre (arriba a la derecha).
@@ -74,6 +76,14 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
    `stock`, `stock_minimo`) y guárdala como CSV.
 3. Súbela. Los códigos nuevos se crean con su existencia inicial (registrada como alta);
    los que ya existen solo actualizan sus datos descriptivos.
+
+### Actualizar datos desde Excel (ubicaciones, nombres, categorías…)
+
+1. **Exportar CSV** en la pantalla de productos.
+2. Cambia en Excel lo que necesites (sin tocar la columna `codigo`) y guárdalo como CSV.
+3. Súbelo en **Importar**. Solo se actualizan las columnas que traiga el archivo, así que
+   también puedes subir uno con solo `codigo` y `ubicacion`. La existencia nunca se cambia
+   desde la importación.
 
 ## Respaldos
 

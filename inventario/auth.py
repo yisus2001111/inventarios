@@ -13,7 +13,7 @@ from .db import ahora, get_db
 # Cada rol incluye los permisos de los anteriores.
 ROLES = {
     "consulta": (0, "Consulta (solo ver)"),
-    "operador": (1, "Operador (altas y bajas)"),
+    "operador": (1, "Operador (altas, bajas y ubicaciones)"),
     "admin": (2, "Administrador"),
 }
 LONGITUD_MINIMA = 6

@@ -74,7 +74,13 @@ def create_app(config=None):
 
     @app.context_processor
     def utilidades_plantillas():
-        return {"puede": auth.puede, "csrf_token": auth.token_csrf, "usuario": g.get("usuario")}
+        return {"puede": auth.puede, "csrf_token": auth.token_csrf, "usuario": g.get("usuario"),
+                "lista_ubicaciones": lista_ubicaciones}
+
+    def lista_ubicaciones():
+        return [r[0] for r in get_db().execute(
+            "SELECT DISTINCT ubicacion FROM productos WHERE ubicacion <> '' ORDER BY ubicacion"
+        )]
 
     @app.errorhandler(400)
     def solicitud_invalida(e):
@@ -93,6 +99,7 @@ def create_app(config=None):
         db = get_db()
         q = request.args.get("q", "").strip()
         categoria = request.args.get("categoria", "")
+        ubicacion = request.args.get("ubicacion", "")
         estado = request.args.get("estado", "activos")
         pagina = max(entero(request.args.get("pagina"), 1), 1)
 
@@ -103,6 +110,9 @@ def create_app(config=None):
         if categoria:
             condiciones.append("categoria = ?")
             params.append(categoria)
+        if ubicacion:
+            condiciones.append("ubicacion = ?")
+            params.append(ubicacion)
         if estado == "activos":
             condiciones.append("activo = 1")
         elif estado == "inactivos":
@@ -131,7 +141,7 @@ def create_app(config=None):
         )]
         return render_template(
             "index.html", productos=productos, resumen=resumen, categorias=categorias,
-            q=q, categoria=categoria, estado=estado, pagina=pagina, paginas=paginas,
+            q=q, categoria=categoria, ubicacion=ubicacion, estado=estado, pagina=pagina, paginas=paginas,
             total=total,
         )
 
@@ -170,11 +180,17 @@ def create_app(config=None):
     @app.route("/productos/<int:pid>")
     def producto_detalle(pid):
         producto = obtener_producto(pid)
-        movimientos = get_db().execute(
+        db = get_db()
+        movimientos = db.execute(
             "SELECT * FROM movimientos WHERE producto_id = ? ORDER BY id DESC LIMIT 200",
             (pid,),
         ).fetchall()
-        return render_template("producto.html", producto=producto, movimientos=movimientos)
+        ubicaciones = db.execute(
+            "SELECT * FROM cambios_ubicacion WHERE producto_id = ? ORDER BY id DESC LIMIT 100",
+            (pid,),
+        ).fetchall()
+        return render_template("producto.html", producto=producto, movimientos=movimientos,
+                               cambios_ubicacion=ubicaciones)
 
     @app.route("/productos/<int:pid>/editar", methods=["GET", "POST"])
     @requiere("admin")
@@ -198,12 +214,12 @@ def create_app(config=None):
                 flash(error, "error")
             else:
                 db.execute(
-                    """UPDATE productos SET codigo=?, nombre=?, categoria=?, ubicacion=?,
+                    """UPDATE productos SET codigo=?, nombre=?, categoria=?,
                               unidad=?, stock_minimo=? WHERE id=?""",
                     (codigo, nombre, form.get("categoria", "").strip(),
-                     form.get("ubicacion", "").strip(),
                      form.get("unidad", "").strip() or "pza", minimo, pid),
                 )
+                base.cambiar_ubicacion(db, pid, form.get("ubicacion", ""), responsable())
                 db.commit()
                 flash("Cambios guardados.", "ok")
                 return redirect(url_for("producto_detalle", pid=pid))
@@ -222,6 +238,45 @@ def create_app(config=None):
             db.commit()
             flash("Producto reactivado." if activar else "Producto desactivado.", "ok")
         return redirect(url_for("producto_detalle", pid=pid))
+
+    @app.route("/productos/<int:pid>/ubicacion", methods=["POST"])
+    @requiere("operador")
+    def producto_ubicacion(pid):
+        obtener_producto(pid)
+        db = get_db()
+        nueva = request.form.get("ubicacion", "").strip()
+        if base.cambiar_ubicacion(db, pid, nueva, responsable()):
+            db.commit()
+            flash(f"Ubicación cambiada a «{nueva or 'sin ubicación'}».", "ok")
+        else:
+            flash("La ubicación no cambió.", "error")
+        return redirect(url_for("producto_detalle", pid=pid))
+
+    @app.route("/productos/mover", methods=["POST"])
+    @requiere("operador")
+    def productos_mover():
+        """Cambia la ubicación de varios productos seleccionados en la lista."""
+        db = get_db()
+        ids = [i for i in (entero(v) for v in request.form.getlist("ids")) if i is not None]
+        nueva = request.form.get("ubicacion", "").strip()
+        if not ids:
+            flash("Marca al menos un producto para moverlo.", "error")
+        elif not nueva:
+            flash("Escribe la nueva ubicación.", "error")
+        else:
+            try:
+                cambiados = sum(base.cambiar_ubicacion(db, i, nueva, responsable()) for i in ids)
+            except ErrorInventario as e:
+                db.rollback()
+                flash(str(e), "error")
+            else:
+                db.commit()
+                flash(f"{cambiados} producto{'' if cambiados == 1 else 's'} "
+                      f"movido{'' if cambiados == 1 else 's'} a «{nueva}».", "ok")
+        destino = request.form.get("volver", "")
+        if not destino.startswith("/") or destino.startswith("//"):
+            destino = url_for("index")
+        return redirect(destino)
 
     # ---------------------------------------------------------------- movimientos
 
@@ -363,9 +418,12 @@ def create_app(config=None):
             dialecto = csv.excel
         lector = csv.DictReader(io.StringIO(texto), dialect=dialecto)
         lector.fieldnames = [(c or "").strip().lower() for c in (lector.fieldnames or [])]
-        if not {"codigo", "nombre"} <= set(lector.fieldnames):
-            flash("El archivo debe tener al menos las columnas «codigo» y «nombre».", "error")
+        columnas = set(lector.fieldnames)
+        if "codigo" not in columnas:
+            flash("El archivo debe tener al menos la columna «codigo».", "error")
             return render_template("importar.html", resultado=None)
+        editables = [c for c in ("nombre", "categoria", "unidad", "stock_minimo")
+                     if c in columnas]
 
         db = get_db()
         resultado = {"creados": 0, "actualizados": 0, "errores": []}
@@ -382,16 +440,21 @@ def create_app(config=None):
                                    (fila.get("codigo", ""),)).fetchone()
             try:
                 if existente:
-                    # Solo se actualizan los datos descriptivos; la existencia
-                    # cambia únicamente mediante movimientos de alta/baja.
-                    if not fila.get("nombre"):
-                        raise ErrorInventario("el nombre es obligatorio.")
-                    db.execute(
-                        """UPDATE productos SET nombre=?, categoria=?, ubicacion=?,
-                                  unidad=?, stock_minimo=? WHERE id=?""",
-                        (fila["nombre"], fila.get("categoria", ""), fila.get("ubicacion", ""),
-                         fila.get("unidad") or "pza", minimo, existente["id"]),
-                    )
+                    # Solo se actualizan los datos descriptivos de las columnas que
+                    # trae el archivo; la existencia cambia únicamente con altas/bajas.
+                    if "nombre" in columnas and not fila.get("nombre"):
+                        raise ErrorInventario("el nombre no puede quedar vacío.")
+                    valores = {"nombre": fila.get("nombre"), "categoria": fila.get("categoria"),
+                               "unidad": fila.get("unidad") or "pza", "stock_minimo": minimo}
+                    if editables:
+                        db.execute(
+                            f"UPDATE productos SET {', '.join(c + ' = ?' for c in editables)}"
+                            f" WHERE id = ?",
+                            [valores[c] for c in editables] + [existente["id"]],
+                        )
+                    if "ubicacion" in columnas:
+                        base.cambiar_ubicacion(db, existente["id"], fila.get("ubicacion"),
+                                               responsable())
                     resultado["actualizados"] += 1
                 else:
                     base.crear_producto(

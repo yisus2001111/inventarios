@@ -22,6 +22,10 @@
     <option value="">Todas las categorías</option>
     {% for c in categorias %}<option {{ 'selected' if c == categoria }}>{{ c }}</option>{% endfor %}
   </select>
+  <select name="ubicacion">
+    <option value="">Todas las ubicaciones</option>
+    {% for u in lista_ubicaciones() %}<option {{ 'selected' if u == ubicacion }}>{{ u }}</option>{% endfor %}
+  </select>
   <select name="estado">
     {% for v, t in [('activos','Activos'),('bajo','Bajo mínimo'),('inactivos','Desactivados'),('todos','Todos')] %}
       <option value="{{ v }}" {{ 'selected' if v == estado }}>{{ t }}</option>
@@ -31,12 +35,22 @@
 </form>
 
 <p class="nota">{{ total }} resultado{{ '' if total == 1 else 's' }}</p>
+{% set mover = puede('operador') and productos %}
+{% if mover %}
+<form method="post" action="{{ url_for('productos_mover') }}" id="mover" class="barra-mover"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="volver" value="{{ request.full_path }}">
+  <span><strong id="marcados">0</strong> marcados</span>
+  <label>Mover a <input name="ubicacion" list="ubicaciones" placeholder="Nueva ubicación" required></label>
+  <button>Mover marcados</button>
+</form>
+{% endif %}
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th class="num">Existencia</th><th class="num">Mínimo</th></tr></thead>
+  <thead><tr>{% if mover %}<th class="casilla"><input type="checkbox" id="todos" title="Marcar todos los de esta página"></th>{% endif %}<th>Código</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th class="num">Existencia</th><th class="num">Mínimo</th></tr></thead>
   <tbody>
   {% for p in productos %}
     <tr class="{{ 'inactivo' if not p.activo }} {{ 'bajo' if p.activo and p.stock <= p.stock_minimo }}">
+      {% if mover %}<td class="casilla"><input type="checkbox" name="ids" value="{{ p.id }}" form="mover"></td>{% endif %}
       <td><a href="{{ url_for('producto_detalle', pid=p.id) }}">{{ p.codigo }}</a></td>
       <td><a href="{{ url_for('producto_detalle', pid=p.id) }}">{{ p.nombre }}</a></td>
       <td>{{ p.categoria }}</td>
@@ -51,4 +65,15 @@
 </table>
 </div>
 {% include "_paginacion.html" %}
+{% if mover %}
+<script>
+  const casillas = [...document.querySelectorAll('input[name=ids]')];
+  const contar = () => document.getElementById('marcados').textContent = casillas.filter(c => c.checked).length;
+  casillas.forEach(c => c.addEventListener('change', contar));
+  document.getElementById('todos').addEventListener('change', e => { casillas.forEach(c => c.checked = e.target.checked); contar(); });
+  document.getElementById('mover').addEventListener('submit', e => {
+    if (!casillas.some(c => c.checked)) { e.preventDefault(); alert('Marca al menos un producto.'); }
+  });
+</script>
+{% endif %}
 {% endblock %}

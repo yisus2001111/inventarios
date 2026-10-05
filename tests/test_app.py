@@ -249,3 +249,60 @@ def test_clave_secreta_se_genera_y_persiste(tmp_path, monkeypatch):
     a = create_app({"DATABASE": db}).config["SECRET_KEY"]
     b = create_app({"DATABASE": db}).config["SECRET_KEY"]
     assert a == b and len(a) == 64 and (tmp_path / ".clave_secreta").exists()
+
+
+# --------------------------------------------------------------- ubicaciones
+
+
+def test_cambiar_ubicacion_deja_historial(client, app):
+    nuevo(client)
+    crear_usuario(client, "luis", "operador")
+    op = entrar(app, "luis")
+    r = op.post("/productos/1/ubicacion", data={"ubicacion": "Bodega 2"}, follow_redirects=True)
+    html = r.get_data(as_text=True)
+    assert "Ubicación cambiada a «Bodega 2»" in html
+    assert "Cambios de ubicación" in html and "luis" in html
+    r = op.post("/productos/1/ubicacion", data={"ubicacion": "Bodega 2"}, follow_redirects=True)
+    assert "no cambió" in r.get_data(as_text=True)
+
+
+def test_consulta_no_cambia_ubicacion(client, app):
+    nuevo(client)
+    crear_usuario(client, "vero", "consulta")
+    c = entrar(app, "vero")
+    assert c.post("/productos/1/ubicacion", data={"ubicacion": "X"}).status_code == 403
+    assert c.post("/productos/mover", data={"ids": ["1"], "ubicacion": "X"}).status_code == 403
+    assert "Cambiar ubicación" not in c.get("/productos/1").get_data(as_text=True)
+
+
+def test_mover_varios(client):
+    for codigo in ("A-1", "A-2", "A-3"):
+        nuevo(client, codigo=codigo)
+    r = client.post("/productos/mover", data={"ids": ["1", "3"], "ubicacion": "Estante C",
+                                              "volver": "/?estado=todos"})
+    assert r.location == "/?estado=todos"
+    html = client.get("/?ubicacion=Estante+C").get_data(as_text=True)
+    assert "A-1" in html and "A-3" in html and "A-2" not in html
+    r = client.post("/productos/mover", data={"ubicacion": "X"}, follow_redirects=True)
+    assert "Marca al menos un producto" in r.get_data(as_text=True)
+    r = client.post("/productos/mover", data={"ids": ["1"], "volver": "//evil.example"})
+    assert r.location == "/"
+
+
+def test_editar_registra_cambio_de_ubicacion(client):
+    nuevo(client)
+    client.post("/productos/1/editar", data={"codigo": "A-1", "nombre": "Producto A-1",
+                                             "ubicacion": "Almacén 3", "stock_minimo": 2})
+    html = client.get("/productos/1").get_data(as_text=True)
+    assert "Almacén 3" in html and "Cambios de ubicación" in html
+
+
+def test_importar_solo_codigo_y_ubicacion_no_borra_lo_demas(client):
+    nuevo(client, codigo="A-1", minimo=7)
+    csv = "codigo;ubicacion\nA-1;Pasillo 4\n"
+    r = client.post("/importar", data={"archivo": (io.BytesIO(csv.encode()), "u.csv")},
+                    content_type="multipart/form-data")
+    assert "1 actualizados, 0 con error" in r.get_data(as_text=True)
+    html = client.get("/productos/1").get_data(as_text=True)
+    assert "Pasillo 4" in html and "Producto A-1" in html and "General" in html
+    assert "mínimo 7" in html and "Cambios de ubicación" in html

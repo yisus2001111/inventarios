@@ -8,7 +8,7 @@
   <label>Código *<input name="codigo" required value="{{ valor('codigo') }}" autofocus></label>
   <label>Nombre *<input name="nombre" required value="{{ valor('nombre') }}"></label>
   <label>Categoría<input name="categoria" value="{{ valor('categoria') }}"></label>
-  <label>Ubicación<input name="ubicacion" value="{{ valor('ubicacion') }}" placeholder="Ej. Almacén 1 / Estante B"></label>
+  <label>Ubicación<input name="ubicacion" list="ubicaciones" value="{{ valor('ubicacion') }}" placeholder="Ej. Almacén 1 / Estante B"></label>
   <label>Unidad<input name="unidad" value="{{ valor('unidad', 'pza') }}"></label>
   <label>Stock mínimo<input name="stock_minimo" type="number" min="0" value="{{ valor('stock_minimo', 0) }}"></label>
   {% if nuevo %}

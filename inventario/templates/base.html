@@ -30,6 +30,7 @@
       {% for cat, msg in mensajes %}<div class="aviso {{ cat }}">{{ msg }}</div>{% endfor %}
     {% endwith %}
     {% block contenido %}{% endblock %}
+    {% if usuario %}<datalist id="ubicaciones">{% for u in lista_ubicaciones() %}<option value="{{ u }}">{% endfor %}</datalist>{% endif %}
   </main>
 </body>
 </html>

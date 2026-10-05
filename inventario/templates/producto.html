@@ -1,11 +1,31 @@
 {% extends "base.html" %}
-{% block titulo %}{{ producto.codigo }}{% endblock %}
+{% block titulo %}{{ producto.codigo }}
+{% if cambios_ubicacion %}
+<h2>Cambios de ubicación</h2>
+<div class="tabla-scroll">
+<table>
+  <thead><tr><th>Fecha</th><th>De</th><th>A</th><th>Usuario</th></tr></thead>
+  <tbody>
+  {% for c in cambios_ubicacion %}
+    <tr><td>{{ c.fecha }}</td><td>{{ c.anterior or '—' }}</td><td>{{ c.nueva or '—' }}</td><td>{{ c.usuario }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
 {% block contenido %}
 <div class="encabezado">
   <div>
     <p class="nota">{{ producto.codigo }}{% if not producto.activo %} · <strong>DESACTIVADO</strong>{% endif %}</p>
     <h1>{{ producto.nombre }}</h1>
-    <p class="nota">{{ producto.categoria or 'Sin categoría' }} · {{ producto.ubicacion or 'Sin ubicación' }}</p>
+    <p class="nota">{{ producto.categoria or 'Sin categoría' }} · Ubicación: <strong>{{ producto.ubicacion or 'sin ubicación' }}</strong></p>
+    {% if puede('operador') %}
+    <form method="post" action="{{ url_for('producto_ubicacion', pid=producto.id) }}" class="cambiar-ubicacion"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input name="ubicacion" list="ubicaciones" value="{{ producto.ubicacion }}" aria-label="Nueva ubicación" required>
+      <button class="secundario">Cambiar ubicación</button>
+    </form>
+    {% endif %}
   </div>
   <div class="existencia {{ 'bajo' if producto.stock <= producto.stock_minimo }}">
     <span>{{ producto.stock }}</span>{{ producto.unidad }} en existencia<br><small>mínimo {{ producto.stock_minimo }}</small>
@@ -54,4 +74,18 @@
   </tbody>
 </table>
 </div>
+
+{% if cambios_ubicacion %}
+<h2>Cambios de ubicación</h2>
+<div class="tabla-scroll">
+<table>
+  <thead><tr><th>Fecha</th><th>De</th><th>A</th><th>Usuario</th></tr></thead>
+  <tbody>
+  {% for c in cambios_ubicacion %}
+    <tr><td>{{ c.fecha }}</td><td>{{ c.anterior or '—' }}</td><td>{{ c.nueva or '—' }}</td><td>{{ c.usuario }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 {% endblock %}

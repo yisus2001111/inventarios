@@ -86,3 +86,10 @@ form.en-linea { display: inline; }
 button.enlace { background: none; border: 0; padding: 0; color: #fff; opacity: .85; text-decoration: underline; }
 .caja { max-width: 420px; margin: 32px auto; }
 .formulario label.casilla { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
+
+.barra-mover { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.barra-mover label { display: flex; gap: 6px; align-items: center; }
+.barra-mover input[name=ubicacion] { width: 240px; max-width: 100%; }
+th.casilla, td.casilla { width: 36px; padding-right: 0; }
+.cambiar-ubicacion { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cambiar-ubicacion input { width: 260px; max-width: 100%; }
