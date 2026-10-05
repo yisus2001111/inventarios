@@ -44,7 +44,7 @@ code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; }
 button.peligro { background: var(--panel); color: var(--error); border-color: var(--error); }
 
 input, select { font: inherit; font-weight: 400; padding: 7px 9px; border: 1px solid var(--borde); border-radius: 6px; background: var(--panel); color: var(--texto); width: 100%; }
-input[type=radio] { width: auto; }
+input[type=radio], input[type=checkbox] { width: auto; }
 
 .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
 .filtros input[type=search] { flex: 1 1 260px; width: auto; }
@@ -81,3 +81,8 @@ form.en-linea { display: inline; }
 .existencia { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 12px 18px; text-align: right; color: var(--suave); }
 .existencia span { display: block; font-size: 2.2rem; font-weight: 700; color: var(--texto); line-height: 1.1; }
 .existencia.bajo { background: var(--alerta-fondo); border-color: #f0d48a; }
+
+.barra .sesion { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+button.enlace { background: none; border: 0; padding: 0; color: #fff; opacity: .85; text-decoration: underline; }
+.caja { max-width: 420px; margin: 32px auto; }
+.formulario label.casilla { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }

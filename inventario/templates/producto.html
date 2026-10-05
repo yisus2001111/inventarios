@@ -12,22 +12,22 @@
   </div>
 </div>
 
-{% if producto.activo %}
-<form method="post" action="{{ url_for('producto_movimiento', pid=producto.id) }}" class="movimiento">
+{% if producto.activo and puede('operador') %}
+<form method="post" action="{{ url_for('producto_movimiento', pid=producto.id) }}" class="movimiento"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <fieldset class="tipo">
     <label><input type="radio" name="tipo" value="alta" checked> Alta (entrada)</label>
     <label><input type="radio" name="tipo" value="baja"> Baja (salida)</label>
   </fieldset>
   <label>Cantidad<input name="cantidad" type="number" min="1" value="1" required></label>
   <label>Motivo<input name="motivo" placeholder="Compra, entrega a área, merma…"></label>
-  <label>Responsable<input name="responsable"></label>
   <button>Registrar</button>
 </form>
 {% endif %}
 
+{% if puede('admin') %}
 <div class="acciones">
   <a class="boton secundario" href="{{ url_for('producto_editar', pid=producto.id) }}">Editar datos</a>
-  <form method="post" action="{{ url_for('producto_activo', pid=producto.id) }}" class="en-linea">
+  <form method="post" action="{{ url_for('producto_activo', pid=producto.id) }}" class="en-linea"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
     {% if producto.activo %}
       <input type="hidden" name="activar" value="0">
       <button class="peligro" onclick="return confirm('¿Desactivar este producto?')">Desactivar producto</button>
@@ -37,11 +37,12 @@
     {% endif %}
   </form>
 </div>
+{% endif %}
 
 <h2>Movimientos</h2>
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Responsable</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in movimientos %}
     <tr><td>{{ m.fecha }}</td><td><span class="etiqueta {{ m.tipo }}">{{ m.tipo }}</span></td>

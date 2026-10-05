@@ -4,3 +4,4 @@ __pycache__/
 inventario.db
 respaldos/
 .pytest_cache/
+.clave_secreta

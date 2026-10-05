@@ -4,7 +4,7 @@
 {% block titulo %}{{ 'Nuevo producto' if nuevo else 'Editar ' ~ producto.codigo }}{% endblock %}
 {% block contenido %}
 <h1>{{ 'Alta de producto' if nuevo else 'Editar producto' }}</h1>
-<form method="post" class="formulario">
+<form method="post" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label>Código *<input name="codigo" required value="{{ valor('codigo') }}" autofocus></label>
   <label>Nombre *<input name="nombre" required value="{{ valor('nombre') }}"></label>
   <label>Categoría<input name="categoria" value="{{ valor('categoria') }}"></label>
@@ -13,7 +13,6 @@
   <label>Stock mínimo<input name="stock_minimo" type="number" min="0" value="{{ valor('stock_minimo', 0) }}"></label>
   {% if nuevo %}
   <label>Existencia inicial<input name="stock_inicial" type="number" min="0" value="{{ form.get('stock_inicial', 0) }}"></label>
-  <label>Responsable<input name="responsable" value="{{ form.get('responsable', '') }}"></label>
   {% else %}
   <p class="nota completo">La existencia ({{ producto.stock }} {{ producto.unidad }}) solo cambia con movimientos de alta o baja, para que quede registro.</p>
   {% endif %}

@@ -6,7 +6,7 @@
   <a class="boton secundario" href="{{ url_for('exportar_movimientos', **request.args.to_dict()) }}">Exportar CSV</a>
 </div>
 <form class="filtros" method="get">
-  <input type="search" name="q" value="{{ q }}" placeholder="Producto, motivo o responsable">
+  <input type="search" name="q" value="{{ q }}" placeholder="Producto, motivo o usuario">
   <select name="tipo">
     <option value="">Altas y bajas</option>
     <option value="alta" {{ 'selected' if tipo == 'alta' }}>Solo altas</option>
@@ -19,7 +19,7 @@
 <p class="nota">{{ total }} movimiento{{ '' if total == 1 else 's' }}</p>
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Responsable</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in movimientos %}
     <tr><td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>

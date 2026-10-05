@@ -3,7 +3,7 @@
 {% block contenido %}
 <h1>Alta / baja rápida</h1>
 <p class="nota">Teclea o escanea el código del producto. Útil con lector de código de barras.</p>
-<form method="post" class="movimiento">
+<form method="post" class="movimiento"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <fieldset class="tipo">
     <label><input type="radio" name="tipo" value="alta" {{ 'checked' if form.get('tipo') != 'baja' }}> Alta (entrada)</label>
     <label><input type="radio" name="tipo" value="baja" {{ 'checked' if form.get('tipo') == 'baja' }}> Baja (salida)</label>
@@ -11,14 +11,13 @@
   <label>Código<input name="codigo" required autofocus value="{{ form.get('codigo', '') if request.method == 'POST' }}"></label>
   <label>Cantidad<input name="cantidad" type="number" min="1" value="1" required></label>
   <label>Motivo<input name="motivo" value="{{ form.get('motivo', '') }}"></label>
-  <label>Responsable<input name="responsable" value="{{ form.get('responsable', '') }}"></label>
   <button>Registrar</button>
 </form>
 
 <h2>Últimos movimientos</h2>
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Responsable</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in ultimos %}
     <tr><td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>

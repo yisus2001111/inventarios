@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Usuarios{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>Usuarios</h1>
+  <div class="botones"><a class="boton" href="{{ url_for('auth.usuario_nuevo') }}">+ Nuevo usuario</a></div>
+</div>
+<ul class="nota">
+  <li><strong>Administrador:</strong> todo, incluido dar de alta/editar productos, importar y gestionar usuarios.</li>
+  <li><strong>Operador:</strong> registrar altas y bajas de existencia, y consultar.</li>
+  <li><strong>Consulta:</strong> solo ver productos e historial, y exportar.</li>
+</ul>
+<div class="tabla-scroll">
+<table>
+  <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead>
+  <tbody>
+  {% for u in usuarios %}
+    <tr class="{{ 'inactivo' if not u.activo }}">
+      <td><a href="{{ url_for('auth.usuario_editar', uid=u.id) }}">{{ u.usuario }}</a></td>
+      <td>{{ u.nombre }}</td><td>{{ roles[u.rol][1] }}</td>
+      <td>{{ 'Activo' if u.activo else 'Desactivado' }}</td><td>{{ u.creado_en[:10] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

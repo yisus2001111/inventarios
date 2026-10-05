@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block titulo %}Mi contraseña{% endblock %}
+{% block contenido %}
+<form method="post" class="formulario caja"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <h1 class="completo">Cambiar mi contraseña</h1>
+  <p class="nota completo">Usuario: <strong>{{ usuario.usuario }}</strong></p>
+  <label class="completo">Contraseña actual<input name="actual" type="password" required autofocus autocomplete="current-password"></label>
+  <label class="completo">Nueva contraseña<input name="contrasena" type="password" required autocomplete="new-password"></label>
+  <label class="completo">Repite la nueva contraseña<input name="confirmacion" type="password" required autocomplete="new-password"></label>
+  <div class="acciones completo"><button>Guardar</button><a href="{{ url_for('index') }}">Cancelar</a></div>
+</form>
+{% endblock %}

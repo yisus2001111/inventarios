@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% set nuevo = u is none %}
+{% block titulo %}{{ 'Nuevo usuario' if nuevo else 'Usuario ' ~ u.usuario }}{% endblock %}
+{% block contenido %}
+<h1>{{ 'Nuevo usuario' if nuevo else 'Editar usuario: ' ~ u.usuario }}</h1>
+{% set rol_actual = form.get('rol') or (u.rol if u else 'operador') %}
+<form method="post" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  {% if nuevo %}
+  <label>Usuario *<input name="usuario" required autofocus value="{{ form.get('usuario', '') }}" autocomplete="off"></label>
+  {% endif %}
+  <label>Nombre completo<input name="nombre" value="{{ form.get('nombre') if form.get('nombre') is not none else (u.nombre if u else '') }}"></label>
+  <label>Rol
+    <select name="rol">
+      {% for clave, (_, texto) in roles.items() %}<option value="{{ clave }}" {{ 'selected' if clave == rol_actual }}>{{ texto }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if not nuevo %}
+  <label class="casilla"><input type="checkbox" name="activo" value="1" {{ 'checked' if u.activo }}> Usuario activo (puede iniciar sesión)</label>
+  <p class="nota completo">Deja la contraseña en blanco para no cambiarla.</p>
+  {% endif %}
+  <label>{{ 'Contraseña *' if nuevo else 'Nueva contraseña' }}<input name="contrasena" type="password" {{ 'required' if nuevo }} autocomplete="new-password"></label>
+  <label>Repite la contraseña<input name="confirmacion" type="password" {{ 'required' if nuevo }} autocomplete="new-password"></label>
+  <div class="acciones completo">
+    <button>{{ 'Crear usuario' if nuevo else 'Guardar cambios' }}</button>
+    <a href="{{ url_for('auth.usuarios') }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

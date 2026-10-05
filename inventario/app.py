@@ -3,12 +3,15 @@
 import csv
 import io
 import os
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 
-from flask import (Flask, Response, abort, flash, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, url_for)
 
+from . import auth
 from . import db as base
+from .auth import requiere
 from .db import ErrorInventario, get_db
 
 POR_PAGINA = 50
@@ -21,20 +24,67 @@ def entero(valor, defecto=None):
         return defecto
 
 
+def clave_secreta(ruta_db):
+    """Clave para firmar las sesiones.
+
+    Si no se define INVENTARIO_SECRET_KEY, se genera una aleatoria la primera vez y
+    se guarda junto a la base de datos, para que las sesiones sobrevivan a reinicios.
+    """
+    if os.environ.get("INVENTARIO_SECRET_KEY"):
+        return os.environ["INVENTARIO_SECRET_KEY"]
+    ruta = os.path.join(os.path.dirname(os.path.abspath(ruta_db)), ".clave_secreta")
+    try:
+        with open(ruta, encoding="ascii") as f:
+            clave = f.read().strip()
+        if clave:
+            return clave
+    except FileNotFoundError:
+        pass
+    clave = secrets.token_hex(32)
+    with open(ruta, "w", encoding="ascii") as f:
+        f.write(clave)
+    return clave
+
+
+def responsable():
+    return g.usuario["usuario"]
+
+
 def create_app(config=None):
     app = Flask(__name__)
     app.config.update(
-        SECRET_KEY=os.environ.get("INVENTARIO_SECRET_KEY", "cambia-esta-clave"),
         DATABASE=os.environ.get(
             "INVENTARIO_DB", os.path.join(app.root_path, "..", "inventario.db")
         ),
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
     )
     if config:
         app.config.update(config)
+    if not app.config.get("SECRET_KEY"):
+        app.config["SECRET_KEY"] = clave_secreta(app.config["DATABASE"])
 
     app.teardown_appcontext(base.cerrar_db)
     with app.app_context():
         base.init_db()
+
+    app.register_blueprint(auth.bp)
+    app.before_request(auth.antes_de_cada_peticion)
+
+    @app.context_processor
+    def utilidades_plantillas():
+        return {"puede": auth.puede, "csrf_token": auth.token_csrf, "usuario": g.get("usuario")}
+
+    @app.errorhandler(400)
+    def solicitud_invalida(e):
+        return render_template("error.html", titulo="Solicitud no válida",
+                               mensaje=e.description), 400
+
+    @app.errorhandler(403)
+    def prohibido(_e):
+        return render_template("error.html", titulo="Sin permiso",
+                               mensaje="Tu usuario no tiene permiso para hacer esto."), 403
 
     # ------------------------------------------------------------------ productos
 
@@ -86,6 +136,7 @@ def create_app(config=None):
         )
 
     @app.route("/productos/nuevo", methods=["GET", "POST"])
+    @requiere("admin")
     def producto_nuevo():
         form = request.form
         if request.method == "POST":
@@ -99,7 +150,7 @@ def create_app(config=None):
                     db, form.get("codigo"), form.get("nombre"),
                     form.get("categoria", ""), form.get("ubicacion", ""),
                     form.get("unidad", "pza"), stock, minimo,
-                    responsable=form.get("responsable", ""),
+                    responsable=responsable(),
                 )
                 db.commit()
             except ErrorInventario as e:
@@ -126,6 +177,7 @@ def create_app(config=None):
         return render_template("producto.html", producto=producto, movimientos=movimientos)
 
     @app.route("/productos/<int:pid>/editar", methods=["GET", "POST"])
+    @requiere("admin")
     def producto_editar(pid):
         producto = obtener_producto(pid)
         form = request.form
@@ -158,6 +210,7 @@ def create_app(config=None):
         return render_template("producto_form.html", producto=producto, form=form)
 
     @app.route("/productos/<int:pid>/activo", methods=["POST"])
+    @requiere("admin")
     def producto_activo(pid):
         producto = obtener_producto(pid)
         activar = request.form.get("activar") == "1"
@@ -177,7 +230,7 @@ def create_app(config=None):
         try:
             nuevo = base.registrar_movimiento(
                 db, pid, request.form.get("tipo"), entero(request.form.get("cantidad")),
-                request.form.get("motivo", ""), request.form.get("responsable", ""),
+                request.form.get("motivo", ""), responsable(),
             )
             db.commit()
         except ErrorInventario as e:
@@ -189,12 +242,14 @@ def create_app(config=None):
         return True
 
     @app.route("/productos/<int:pid>/movimiento", methods=["POST"])
+    @requiere("operador")
     def producto_movimiento(pid):
         obtener_producto(pid)
         aplicar_movimiento(pid)
         return redirect(url_for("producto_detalle", pid=pid))
 
     @app.route("/movimiento", methods=["GET", "POST"])
+    @requiere("operador")
     def movimiento_rapido():
         """Alta/baja tecleando o escaneando el código del producto."""
         if request.method == "POST":
@@ -205,10 +260,7 @@ def create_app(config=None):
             if fila is None:
                 flash(f"No existe ningún producto con el código «{codigo}».", "error")
             elif aplicar_movimiento(fila["id"]):
-                return redirect(url_for(
-                    "movimiento_rapido", tipo=request.form.get("tipo"),
-                    responsable=request.form.get("responsable", ""),
-                ))
+                return redirect(url_for("movimiento_rapido", tipo=request.form.get("tipo")))
         ultimos = get_db().execute(
             """SELECT m.*, p.codigo, p.nombre, p.unidad FROM movimientos m
                JOIN productos p ON p.id = m.producto_id ORDER BY m.id DESC LIMIT 10"""
@@ -290,6 +342,7 @@ def create_app(config=None):
         )
 
     @app.route("/importar", methods=["GET", "POST"])
+    @requiere("admin")
     def importar():
         if request.method == "GET":
             return render_template("importar.html", resultado=None)
@@ -315,7 +368,6 @@ def create_app(config=None):
             return render_template("importar.html", resultado=None)
 
         db = get_db()
-        responsable = request.form.get("responsable", "")
         resultado = {"creados": 0, "actualizados": 0, "errores": []}
         for n, fila in enumerate(lector, start=2):
             fila = {k: (v or "").strip() for k, v in fila.items() if k}
@@ -345,7 +397,7 @@ def create_app(config=None):
                     base.crear_producto(
                         db, fila.get("codigo"), fila.get("nombre"), fila.get("categoria", ""),
                         fila.get("ubicacion", ""), fila.get("unidad") or "pza", stock, minimo,
-                        responsable=responsable, motivo="Importación inicial",
+                        responsable=responsable(), motivo="Importación inicial",
                     )
                     resultado["creados"] += 1
             except ErrorInventario as e:
@@ -354,6 +406,7 @@ def create_app(config=None):
         return render_template("importar.html", resultado=resultado)
 
     @app.route("/plantilla.csv")
+    @requiere("admin")
     def plantilla():
         return respuesta_csv(
             "plantilla_inventario",

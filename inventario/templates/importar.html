@@ -10,9 +10,8 @@
   <li>Códigos nuevos: se crean con su existencia inicial, registrada como alta.</li>
   <li>Códigos que ya existen: se actualizan sus datos, pero <strong>no</strong> la existencia (usa altas/bajas para eso).</li>
 </ul>
-<form method="post" enctype="multipart/form-data" class="formulario">
+<form method="post" enctype="multipart/form-data" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label>Archivo CSV<input type="file" name="archivo" accept=".csv,text/csv" required></label>
-  <label>Responsable<input name="responsable"></label>
   <div class="acciones completo"><button>Importar</button></div>
 </form>
 {% if resultado %}

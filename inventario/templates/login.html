@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block titulo %}Iniciar sesión{% endblock %}
+{% block contenido %}
+<form method="post" class="formulario caja"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <h1 class="completo">Iniciar sesión</h1>
+  <label class="completo">Usuario<input name="usuario" required autofocus autocomplete="username"></label>
+  <label class="completo">Contraseña<input name="contrasena" type="password" required autocomplete="current-password"></label>
+  <div class="acciones completo"><button>Entrar</button></div>
+  <p class="nota completo">¿Olvidaste tu contraseña? Pide a un administrador que te asigne una nueva.</p>
+</form>
+{% endblock %}

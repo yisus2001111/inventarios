@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS movimientos (
     fecha            TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usuarios (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario     TEXT    NOT NULL UNIQUE,
+    nombre      TEXT    NOT NULL DEFAULT '',
+    rol         TEXT    NOT NULL CHECK (rol IN ('admin', 'operador', 'consulta')),
+    contrasena  TEXT    NOT NULL,
+    activo      INTEGER NOT NULL DEFAULT 1,
+    creado_en   TEXT    NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_mov_producto ON movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
 """

@@ -12,7 +12,7 @@
   <h1>Productos</h1>
   <div class="botones">
     <a class="boton secundario" href="{{ url_for('exportar_productos') }}">Exportar CSV</a>
-    <a class="boton" href="{{ url_for('producto_nuevo') }}">+ Nuevo producto</a>
+    {% if puede('admin') %}<a class="boton" href="{{ url_for('producto_nuevo') }}">+ Nuevo producto</a>{% endif %}
   </div>
 </div>
 
@@ -45,7 +45,7 @@
       <td class="num">{{ p.stock_minimo }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="vacio">No hay productos. <a href="{{ url_for('producto_nuevo') }}">Da de alta el primero</a> o <a href="{{ url_for('importar') }}">importa un CSV</a>.</td></tr>
+    <tr><td colspan="6" class="vacio">No hay productos.{% if puede('admin') %} <a href="{{ url_for('producto_nuevo') }}">Da de alta el primero</a> o <a href="{{ url_for('importar') }}">importa un CSV</a>.{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table>

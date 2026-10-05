@@ -9,12 +9,21 @@
 <body>
   <header class="barra">
     <a class="marca" href="{{ url_for('index') }}">Inventario interno</a>
+    {% if usuario %}
     <nav>
       <a href="{{ url_for('index') }}">Productos</a>
-      <a href="{{ url_for('movimiento_rapido') }}">Alta / baja rápida</a>
+      {% if puede('operador') %}<a href="{{ url_for('movimiento_rapido') }}">Alta / baja rápida</a>{% endif %}
       <a href="{{ url_for('movimientos') }}">Historial</a>
-      <a href="{{ url_for('importar') }}">Importar</a>
+      {% if puede('admin') %}
+        <a href="{{ url_for('importar') }}">Importar</a>
+        <a href="{{ url_for('auth.usuarios') }}">Usuarios</a>
+      {% endif %}
     </nav>
+    <div class="sesion">
+      <a href="{{ url_for('auth.mi_contrasena') }}" title="Cambiar mi contraseña">{{ usuario.nombre or usuario.usuario }}</a>
+      <form method="post" action="{{ url_for('auth.logout') }}" class="en-linea"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="enlace">Salir</button></form>
+    </div>
+    {% endif %}
   </header>
   <main>
     {% with mensajes = get_flashed_messages(with_categories=true) %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block titulo %}Configuración inicial{% endblock %}
+{% block contenido %}
+<form method="post" class="formulario caja"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <h1 class="completo">Bienvenido</h1>
+  <p class="completo">Todavía no hay usuarios. Crea la cuenta del <strong>administrador</strong>:
+    podrá dar de alta productos y usuarios, y asignar permisos a los demás.</p>
+  <label class="completo">Usuario<input name="usuario" required autofocus value="{{ form.get('usuario', '') }}" autocomplete="username"></label>
+  <label class="completo">Nombre completo<input name="nombre" value="{{ form.get('nombre', '') }}"></label>
+  <label class="completo">Contraseña<input name="contrasena" type="password" required autocomplete="new-password"></label>
+  <label class="completo">Repite la contraseña<input name="confirmacion" type="password" required autocomplete="new-password"></label>
+  <div class="acciones completo"><button>Crear administrador</button></div>
+</form>
+{% endblock %}
