@@ -11,6 +11,7 @@
     <a class="marca" href="{{ url_for('index') }}">Inventario interno</a>
     {% if usuario %}
     <nav>
+      <a href="{{ url_for('vales.lista') }}">Vales</a>
       <a href="{{ url_for('index') }}">Productos</a>
       {% if puede('operador') %}<a href="{{ url_for('movimiento_rapido') }}">Alta / baja rápida</a>{% endif %}
       <a href="{{ url_for('movimientos') }}">Historial</a>

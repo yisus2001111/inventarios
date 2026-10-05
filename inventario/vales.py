@@ -1,0 +1,284 @@
+"""Vales de material para prácticas: préstamo a alumnos y devolución."""
+
+from flask import (Blueprint, abort, flash, g, redirect, render_template, request,
+                   url_for)
+
+from . import db as base
+from .auth import requiere
+from .db import ErrorInventario, ahora, get_db
+from .utiles import entero, respuesta_csv
+
+POR_PAGINA = 50
+CAMPOS = ("alumno", "matricula", "materia", "maestro", "practica", "observaciones")
+OBLIGATORIOS = {"alumno": "nombre del alumno", "materia": "materia",
+                "maestro": "nombre del maestro", "practica": "nombre de la práctica"}
+
+bp = Blueprint("vales", __name__, url_prefix="/vales")
+
+
+def folio(vale_id):
+    return f"V-{vale_id:05d}"
+
+
+def codigo_de(texto):
+    """El campo de material admite «CODIGO — Nombre» (autocompletado) o solo el código."""
+    return (texto or "").split(" — ")[0].strip()
+
+
+def pendientes_por_producto(db, producto_id):
+    """Unidades de un producto que están prestadas en vales abiertos."""
+    return db.execute(
+        """SELECT COALESCE(SUM(i.cantidad - i.devuelto), 0) FROM vale_items i
+           JOIN vales v ON v.id = i.vale_id
+           WHERE v.estado = 'abierto' AND i.producto_id = ?""",
+        (producto_id,),
+    ).fetchone()[0]
+
+
+def crear_vale(db, datos, renglones, usuario):
+    """Crea el vale y descuenta el material del inventario.
+
+    `renglones` es una lista de (texto_material, cantidad). Todo se hace en una sola
+    transacción: si algún renglón no es válido no se registra nada.
+    """
+    faltan = [texto for campo, texto in OBLIGATORIOS.items() if not datos.get(campo)]
+    if faltan:
+        raise ErrorInventario("Falta: " + ", ".join(faltan) + ".")
+
+    cantidades = {}  # producto_id -> cantidad (suma renglones repetidos)
+    orden = []
+    for texto, cantidad in renglones:
+        if not (texto or "").strip():
+            continue  # renglón vacío
+        codigo = codigo_de(texto)
+        producto = db.execute("SELECT * FROM productos WHERE codigo = ?", (codigo,)).fetchone()
+        if producto is None:
+            raise ErrorInventario(f"No existe material con número de inventario «{codigo}».")
+        n = entero(cantidad)
+        if n is None or n <= 0:
+            raise ErrorInventario(f"La cantidad de «{producto['nombre']}» debe ser mayor que cero.")
+        if producto["id"] not in cantidades:
+            orden.append(producto["id"])
+        cantidades[producto["id"]] = cantidades.get(producto["id"], 0) + n
+    if not cantidades:
+        raise ErrorInventario("Agrega al menos un material al vale.")
+
+    cur = db.execute(
+        f"""INSERT INTO vales ({', '.join(CAMPOS)}, fecha, usuario)
+            VALUES ({', '.join('?' * len(CAMPOS))}, ?, ?)""",
+        [datos.get(c, "") for c in CAMPOS] + [ahora(), usuario],
+    )
+    vale_id = cur.lastrowid
+    motivo = f"Vale {folio(vale_id)} · {datos['alumno']} · {datos['practica']}"
+    for pid in orden:
+        db.execute("INSERT INTO vale_items (vale_id, producto_id, cantidad) VALUES (?, ?, ?)",
+                   (vale_id, pid, cantidades[pid]))
+        base.registrar_movimiento(db, pid, "baja", cantidades[pid], motivo, usuario)
+    return vale_id
+
+
+def devolver(db, vale, devoluciones, usuario):
+    """Registra la devolución de material. `devoluciones`: {item_id: cantidad}.
+
+    Devuelve el total de piezas devueltas. Si ya no queda nada pendiente, cierra el vale.
+    """
+    if vale["estado"] != "abierto":
+        raise ErrorInventario("Este vale ya está cerrado.")
+    items = {i["id"]: i for i in db.execute(
+        """SELECT i.*, p.nombre FROM vale_items i JOIN productos p ON p.id = i.producto_id
+           WHERE i.vale_id = ?""", (vale["id"],))}
+    total = 0
+    for item_id, cantidad in devoluciones.items():
+        item = items.get(item_id)
+        if item is None or not cantidad:
+            continue
+        pendiente = item["cantidad"] - item["devuelto"]
+        if cantidad < 0 or cantidad > pendiente:
+            raise ErrorInventario(
+                f"De «{item['nombre']}» quedan {pendiente} por devolver; no se pueden devolver {cantidad}."
+            )
+        db.execute("UPDATE vale_items SET devuelto = devuelto + ? WHERE id = ?", (cantidad, item_id))
+        base.registrar_movimiento(db, item["producto_id"], "alta", cantidad,
+                                  f"Devolución vale {folio(vale['id'])}", usuario)
+        total += cantidad
+    queda = db.execute("SELECT COALESCE(SUM(cantidad - devuelto), 0) FROM vale_items "
+                       "WHERE vale_id = ?", (vale["id"],)).fetchone()[0]
+    if queda == 0:
+        cerrar(db, vale["id"], usuario)
+    return total
+
+
+def cerrar(db, vale_id, usuario):
+    db.execute("UPDATE vales SET estado = 'cerrado', cerrado_en = ?, cerrado_por = ? "
+               "WHERE id = ?", (ahora(), usuario, vale_id))
+
+
+# ----------------------------------------------------------------------- vistas
+
+def obtener_vale(vale_id):
+    vale = get_db().execute("SELECT * FROM vales WHERE id = ?", (vale_id,)).fetchone()
+    if vale is None:
+        abort(404)
+    return vale
+
+
+def consulta_vales():
+    estado = request.args.get("estado", "abierto")
+    q = request.args.get("q", "").strip()
+    desde = request.args.get("desde", "")
+    hasta = request.args.get("hasta", "")
+    condiciones, params = [], []
+    if estado in ("abierto", "cerrado"):
+        condiciones.append("v.estado = ?")
+        params.append(estado)
+    if q:
+        condiciones.append(
+            """(v.alumno LIKE ? OR v.matricula LIKE ? OR v.materia LIKE ? OR v.maestro LIKE ?
+                OR v.practica LIKE ? OR EXISTS (SELECT 1 FROM vale_items i
+                    JOIN productos p ON p.id = i.producto_id
+                    WHERE i.vale_id = v.id AND (p.codigo LIKE ? OR p.nombre LIKE ?)))""")
+        params += [f"%{q}%"] * 7
+        if q.upper().startswith("V-") and entero(q[2:]) is not None:
+            condiciones[-1] = f"({condiciones[-1]} OR v.id = ?)"
+            params.append(entero(q[2:]))
+    if desde:
+        condiciones.append("v.fecha >= ?")
+        params.append(desde)
+    if hasta:
+        condiciones.append("v.fecha <= ?")
+        params.append(hasta + " 23:59:59")
+    where = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
+    return where, params, dict(estado=estado, q=q, desde=desde, hasta=hasta)
+
+
+@bp.route("/")
+def lista():
+    db = get_db()
+    where, params, filtros = consulta_vales()
+    pagina = max(entero(request.args.get("pagina"), 1), 1)
+    total = db.execute(f"SELECT COUNT(*) FROM vales v {where}", params).fetchone()[0]
+    paginas = max((total + POR_PAGINA - 1) // POR_PAGINA, 1)
+    pagina = min(pagina, paginas)
+    vales = db.execute(
+        f"""SELECT v.*,
+                   (SELECT GROUP_CONCAT(i.cantidad || ' × ' || p.nombre, ', ')
+                      FROM vale_items i JOIN productos p ON p.id = i.producto_id
+                     WHERE i.vale_id = v.id) AS materiales,
+                   (SELECT COALESCE(SUM(i.cantidad - i.devuelto), 0)
+                      FROM vale_items i WHERE i.vale_id = v.id) AS pendiente
+            FROM vales v {where} ORDER BY v.id DESC LIMIT ? OFFSET ?""",
+        params + [POR_PAGINA, (pagina - 1) * POR_PAGINA],
+    ).fetchall()
+    return render_template("vales.html", vales=vales, total=total, pagina=pagina,
+                           paginas=paginas, folio=folio, **filtros)
+
+
+def sugerencias(db):
+    """Valores usados antes, para autocompletar el formulario."""
+    def distintos(campo):
+        return [r[0] for r in db.execute(
+            f"SELECT {campo} FROM vales GROUP BY {campo} ORDER BY MAX(id) DESC LIMIT 300")]
+    return {
+        "materias": distintos("materia"),
+        "maestros": distintos("maestro"),
+        "practicas": distintos("practica"),
+        "materiales": db.execute(
+            "SELECT codigo, nombre, stock, unidad FROM productos WHERE activo = 1 ORDER BY nombre"
+        ).fetchall(),
+    }
+
+
+@bp.route("/nuevo", methods=["GET", "POST"])
+@requiere("operador")
+def nuevo():
+    db = get_db()
+    form = request.form
+    renglones = list(zip(form.getlist("material"), form.getlist("cantidad")))
+    if request.method == "POST":
+        datos = {c: form.get(c, "").strip() for c in CAMPOS}
+        try:
+            vale_id = crear_vale(db, datos, renglones, g.usuario["usuario"])
+            db.commit()
+        except ErrorInventario as e:
+            db.rollback()
+            flash(str(e), "error")
+        else:
+            flash(f"Vale {folio(vale_id)} registrado. El material se descontó del inventario.", "ok")
+            return redirect(url_for("vales.detalle", vale_id=vale_id))
+    renglones = [r for r in renglones if r[0].strip()] or [("", "1")]
+    return render_template("vale_form.html", form=form, renglones=renglones, **sugerencias(db))
+
+
+@bp.route("/<int:vale_id>")
+def detalle(vale_id):
+    vale = obtener_vale(vale_id)
+    items = get_db().execute(
+        """SELECT i.*, p.codigo, p.nombre, p.unidad FROM vale_items i
+           JOIN productos p ON p.id = i.producto_id WHERE i.vale_id = ? ORDER BY i.id""",
+        (vale_id,),
+    ).fetchall()
+    return render_template("vale.html", vale=vale, items=items, folio=folio)
+
+
+@bp.route("/<int:vale_id>/devolucion", methods=["POST"])
+@requiere("operador")
+def devolucion(vale_id):
+    db = get_db()
+    vale = obtener_vale(vale_id)
+    devoluciones = {}
+    for clave, valor in request.form.items():
+        if clave.startswith("devolver_"):
+            n = entero(valor or 0)
+            if n is None:
+                flash("Las cantidades a devolver deben ser números enteros.", "error")
+                return redirect(url_for("vales.detalle", vale_id=vale_id))
+            devoluciones[entero(clave[len("devolver_"):])] = n
+    try:
+        total = devolver(db, vale, devoluciones, g.usuario["usuario"])
+        db.commit()
+    except ErrorInventario as e:
+        db.rollback()
+        flash(str(e), "error")
+    else:
+        if total == 0:
+            flash("No se indicó ninguna cantidad a devolver.", "error")
+        else:
+            cerrado = obtener_vale(vale_id)["estado"] == "cerrado"
+            flash(f"Devolución registrada ({total} pza)."
+                  + (" Se devolvió todo; el vale quedó cerrado." if cerrado else ""), "ok")
+    return redirect(url_for("vales.detalle", vale_id=vale_id))
+
+
+@bp.route("/<int:vale_id>/cerrar", methods=["POST"])
+@requiere("operador")
+def cerrar_vale(vale_id):
+    db = get_db()
+    vale = obtener_vale(vale_id)
+    if vale["estado"] != "abierto":
+        flash("Este vale ya está cerrado.", "error")
+    else:
+        cerrar(db, vale_id, g.usuario["usuario"])
+        db.commit()
+        flash("Vale cerrado. Lo que no se devolvió queda como consumido.", "ok")
+    return redirect(url_for("vales.detalle", vale_id=vale_id))
+
+
+@bp.route("/exportar.csv")
+def exportar():
+    where, params, _ = consulta_vales()
+    filas = get_db().execute(
+        f"""SELECT v.*, p.codigo, p.nombre AS material, i.cantidad, i.devuelto
+            FROM vales v JOIN vale_items i ON i.vale_id = v.id
+            JOIN productos p ON p.id = i.producto_id {where} ORDER BY v.id, i.id""",
+        params,
+    ).fetchall()
+    return respuesta_csv(
+        "vales",
+        ["folio", "fecha", "alumno", "matricula", "materia", "maestro", "practica",
+         "numero_inventario", "material", "cantidad", "devuelto", "no_devuelto", "estado",
+         "registro", "observaciones"],
+        [(folio(f["id"]), f["fecha"], f["alumno"], f["matricula"], f["materia"], f["maestro"],
+          f["practica"], f["codigo"], f["material"], f["cantidad"], f["devuelto"],
+          f["cantidad"] - f["devuelto"], f["estado"], f["usuario"], f["observaciones"])
+         for f in filas],
+    )

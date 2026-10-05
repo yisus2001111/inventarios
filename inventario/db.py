@@ -50,6 +50,32 @@ CREATE TABLE IF NOT EXISTS cambios_ubicacion (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ubic_producto ON cambios_ubicacion(producto_id);
+CREATE TABLE IF NOT EXISTS vales (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    alumno        TEXT    NOT NULL,
+    matricula     TEXT    NOT NULL DEFAULT '',
+    materia       TEXT    NOT NULL,
+    maestro       TEXT    NOT NULL,
+    practica      TEXT    NOT NULL,
+    observaciones TEXT    NOT NULL DEFAULT '',
+    fecha         TEXT    NOT NULL,
+    usuario       TEXT    NOT NULL,
+    estado        TEXT    NOT NULL DEFAULT 'abierto' CHECK (estado IN ('abierto', 'cerrado')),
+    cerrado_en    TEXT,
+    cerrado_por   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS vale_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    vale_id      INTEGER NOT NULL REFERENCES vales(id),
+    producto_id  INTEGER NOT NULL REFERENCES productos(id),
+    cantidad     INTEGER NOT NULL CHECK (cantidad > 0),
+    devuelto     INTEGER NOT NULL DEFAULT 0 CHECK (devuelto >= 0 AND devuelto <= cantidad)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vale_items_vale ON vale_items(vale_id);
+CREATE INDEX IF NOT EXISTS idx_vale_items_producto ON vale_items(producto_id);
+CREATE INDEX IF NOT EXISTS idx_vales_fecha ON vales(fecha);
 CREATE INDEX IF NOT EXISTS idx_mov_producto ON movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
 """

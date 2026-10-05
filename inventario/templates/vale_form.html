@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block titulo %}Nuevo vale{% endblock %}
+{% block contenido %}
+<h1>Nuevo vale de material</h1>
+<p class="nota">La fecha y hora se registran automáticamente. Al guardar, el material se descuenta del inventario.</p>
+<form method="post" class="formulario vale-form" id="vale"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label>Nombre del alumno *<input name="alumno" required autofocus value="{{ form.get('alumno', '') }}"></label>
+  <label>Matrícula<input name="matricula" value="{{ form.get('matricula', '') }}"></label>
+  <label>Materia *<input name="materia" required list="materias" value="{{ form.get('materia', '') }}"></label>
+  <label>Nombre del maestro *<input name="maestro" required list="maestros" value="{{ form.get('maestro', '') }}"></label>
+  <label class="completo">Nombre de la práctica *<input name="practica" required list="practicas" value="{{ form.get('practica', '') }}"></label>
+
+  <fieldset class="completo materiales">
+    <legend>Material</legend>
+    <table>
+      <thead><tr><th class="num">Cantidad</th><th>Material (nombre o número de inventario)</th><th></th></tr></thead>
+      <tbody id="renglones">
+      {% for texto, cantidad in renglones %}
+        <tr>
+          <td><input name="cantidad" type="number" min="1" value="{{ cantidad or 1 }}" required></td>
+          <td><input name="material" list="materiales" value="{{ texto }}" placeholder="Escribe o escanea el número de inventario"></td>
+          <td><button type="button" class="quitar secundario" title="Quitar">✕</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button type="button" id="agregar" class="secundario">+ Agregar otro material</button>
+  </fieldset>
+
+  <label class="completo">Observaciones<input name="observaciones" value="{{ form.get('observaciones', '') }}"></label>
+  <div class="acciones completo">
+    <button>Registrar vale</button>
+    <a href="{{ url_for('vales.lista') }}">Cancelar</a>
+  </div>
+</form>
+
+<datalist id="materias">{% for m in materias %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="maestros">{% for m in maestros %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="practicas">{% for m in practicas %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="materiales">{% for p in materiales %}<option value="{{ p.codigo }} — {{ p.nombre }}" label="{{ p.stock }} {{ p.unidad }} disponibles">{% endfor %}</datalist>
+
+<script>
+  const cuerpo = document.getElementById('renglones');
+  document.getElementById('agregar').addEventListener('click', () => {
+    const fila = cuerpo.rows[0].cloneNode(true);
+    fila.querySelector('[name=cantidad]').value = 1;
+    fila.querySelector('[name=material]').value = '';
+    cuerpo.appendChild(fila);
+    fila.querySelector('[name=material]').focus();
+  });
+  cuerpo.addEventListener('click', e => {
+    if (e.target.classList.contains('quitar') && cuerpo.rows.length > 1) e.target.closest('tr').remove();
+  });
+  // Con lector de código de barras: Enter en el material pasa a un renglón nuevo en vez de enviar.
+  cuerpo.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.name === 'material') {
+      e.preventDefault();
+      if (e.target.value.trim()) document.getElementById('agregar').click();
+    }
+  });
+</script>
+{% endblock %}

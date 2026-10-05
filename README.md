@@ -8,6 +8,10 @@ de la red puede usarla. Los datos se guardan en un único archivo SQLite (`inven
 
 ## Funciones
 
+- **Vales digitales de material para prácticas** (reemplazan el vale en papel): folio,
+  fecha y hora automáticas, alumno, matrícula, materia, maestro, práctica y la lista de
+  material con cantidad, nombre y número de inventario. Control de devoluciones.
+
 - **Productos**: código, nombre, categoría, ubicación, unidad, existencia y stock mínimo.
   Búsqueda, filtro por categoría y paginación (pensado para cientos o miles de artículos).
 - **Altas y bajas**: cada movimiento guarda cantidad, motivo, responsable, fecha y la
@@ -56,7 +60,7 @@ guarda en el archivo `.clave_secreta` junto a la base de datos. No lo compartas.
 La primera vez que abras el programa te pedirá crear la cuenta del **administrador**.
 Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 
-| Rol               | Ver y exportar | Altas / bajas y cambiar ubicación | Productos, importar y usuarios |
+| Rol               | Ver y exportar | Vales, altas / bajas y ubicación  | Productos, importar y usuarios |
 |-------------------|:--------------:|:---------------------------------:|:------------------------------:|
 | **Consulta**      | ✔              |                                   |                                |
 | **Operador**      | ✔              | ✔                                 |                                |
@@ -68,6 +72,26 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 - Para quitarle el acceso a alguien, desmarca «Usuario activo»; su historial se conserva.
 - Siempre debe quedar al menos un administrador activo.
 - La sesión se cierra sola después de 12 horas.
+
+## Vales de material
+
+1. El encargado entra a **Vales → + Nuevo vale** y captura los datos del alumno, la
+   materia, el maestro y la práctica. Materias, maestros y prácticas se autocompletan con
+   los que ya se usaron.
+2. Agrega el material: escribe el nombre o el número de inventario (o escanéalo con un
+   lector de código de barras; cada lectura agrega un renglón).
+3. **Registrar vale**: se asigna folio (`V-00001`, …) y el material se descuenta del inventario.
+   No se permite prestar más de lo que hay en existencia.
+4. Cuando el alumno regresa, abre el vale, indica cuánto devuelve de cada material y
+   presiona **Registrar devolución**. Al devolver todo, el vale se cierra solo.
+   Para consumibles que no regresan, usa **Cerrar sin devolver el resto**.
+
+La lista de **Vales** muestra por defecto los pendientes de devolver, y permite buscar por
+folio, alumno, matrícula, maestro, materia, práctica o material, filtrar por fechas y
+exportar a CSV. Cada vale se puede **imprimir** (con líneas de firma) si se necesita.
+
+Permisos: operadores y administradores capturan vales y devoluciones; el rol de consulta
+solo puede verlos.
 
 ## Cargar tu inventario actual
 
@@ -87,7 +111,7 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 
 ## Respaldos
 
-Todo está en `inventario.db` (productos, movimientos y usuarios). Para respaldar, copia ese archivo (idealmente con la
+Todo está en `inventario.db` (productos, movimientos, vales y usuarios). Para respaldar, copia ese archivo (idealmente con la
 aplicación detenida) o usa **Exportar CSV**.
 
 ## Pruebas

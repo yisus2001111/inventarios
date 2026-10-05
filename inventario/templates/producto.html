@@ -29,6 +29,7 @@
   </div>
   <div class="existencia {{ 'bajo' if producto.stock <= producto.stock_minimo }}">
     <span>{{ producto.stock }}</span>{{ producto.unidad }} en existencia<br><small>mínimo {{ producto.stock_minimo }}</small>
+    {% if prestado %}<br><a href="{{ url_for('vales.lista', q=producto.codigo) }}"><small>{{ prestado }} prestado{{ '' if prestado == 1 else 's' }} en vales</small></a>{% endif %}
   </div>
 </div>
 

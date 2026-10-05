@@ -4,24 +4,18 @@ import csv
 import io
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from flask import (Flask, Response, abort, flash, g, redirect, render_template,
+from flask import (Flask, abort, flash, g, redirect, render_template,
                    request, url_for)
 
-from . import auth
+from . import auth, vales
 from . import db as base
 from .auth import requiere
 from .db import ErrorInventario, get_db
+from .utiles import entero, respuesta_csv
 
 POR_PAGINA = 50
-
-
-def entero(valor, defecto=None):
-    try:
-        return int(str(valor).strip())
-    except (TypeError, ValueError):
-        return defecto
 
 
 def clave_secreta(ruta_db):
@@ -70,6 +64,7 @@ def create_app(config=None):
         base.init_db()
 
     app.register_blueprint(auth.bp)
+    app.register_blueprint(vales.bp)
     app.before_request(auth.antes_de_cada_peticion)
 
     @app.context_processor
@@ -136,11 +131,14 @@ def create_app(config=None):
                       COALESCE(SUM(stock <= stock_minimo), 0) AS bajo_minimo
                FROM productos WHERE activo = 1"""
         ).fetchone()
+        vales_abiertos = db.execute(
+            "SELECT COUNT(*) FROM vales WHERE estado = 'abierto'").fetchone()[0]
         categorias = [r[0] for r in db.execute(
             "SELECT DISTINCT categoria FROM productos WHERE categoria <> '' ORDER BY categoria"
         )]
         return render_template(
             "index.html", productos=productos, resumen=resumen, categorias=categorias,
+            vales_abiertos=vales_abiertos,
             q=q, categoria=categoria, ubicacion=ubicacion, estado=estado, pagina=pagina, paginas=paginas,
             total=total,
         )
@@ -190,7 +188,8 @@ def create_app(config=None):
             (pid,),
         ).fetchall()
         return render_template("producto.html", producto=producto, movimientos=movimientos,
-                               cambios_ubicacion=ubicaciones)
+                               cambios_ubicacion=ubicaciones,
+                               prestado=vales.pendientes_por_producto(db, pid))
 
     @app.route("/productos/<int:pid>/editar", methods=["GET", "POST"])
     @requiere("admin")
@@ -232,6 +231,8 @@ def create_app(config=None):
         activar = request.form.get("activar") == "1"
         if not activar and producto["stock"] > 0:
             flash("Para desactivar un producto primero da de baja toda su existencia.", "error")
+        elif not activar and vales.pendientes_por_producto(get_db(), pid) > 0:
+            flash("No se puede desactivar: hay unidades prestadas en vales sin devolver.", "error")
         else:
             db = get_db()
             db.execute("UPDATE productos SET activo = ? WHERE id = ?", (int(activar), pid))
@@ -362,18 +363,6 @@ def create_app(config=None):
                                pagina=pagina, paginas=paginas, **filtros)
 
     # ------------------------------------------------------- exportar / importar
-
-    def respuesta_csv(nombre, encabezados, filas):
-        salida = io.StringIO()
-        salida.write("﻿")  # BOM para que Excel respete los acentos
-        writer = csv.writer(salida)
-        writer.writerow(encabezados)
-        writer.writerows(filas)
-        sello = datetime.now().strftime("%Y%m%d")
-        return Response(
-            salida.getvalue(), mimetype="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f"attachment; filename={nombre}_{sello}.csv"},
-        )
 
     @app.route("/exportar/productos.csv")
     def exportar_productos():

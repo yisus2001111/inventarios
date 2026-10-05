@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block titulo %}Vale {{ folio(vale.id) }}{% endblock %}
+{% block contenido %}
+<div class="encabezado no-imprimir">
+  <a href="{{ url_for('vales.lista') }}">&larr; Vales</a>
+  <div class="botones">
+    <button class="secundario" onclick="window.print()">Imprimir</button>
+    {% if puede('operador') %}<a class="boton" href="{{ url_for('vales.nuevo') }}">+ Nuevo vale</a>{% endif %}
+  </div>
+</div>
+
+<article class="vale">
+  <header>
+    <div>
+      <p class="nota">Vale de material para prácticas</p>
+      <h1>Folio {{ folio(vale.id) }}</h1>
+    </div>
+    <div class="derecha">
+      {% if vale.estado == 'abierto' %}<span class="etiqueta pendiente">Pendiente de devolver</span>
+      {% else %}<span class="etiqueta cerrado">Cerrado</span>{% endif %}
+    </div>
+  </header>
+  <dl class="datos">
+    <div><dt>Fecha</dt><dd>{{ vale.fecha }}</dd></div>
+    <div><dt>Alumno</dt><dd>{{ vale.alumno }}</dd></div>
+    {% if vale.matricula %}<div><dt>Matrícula</dt><dd>{{ vale.matricula }}</dd></div>{% endif %}
+    <div><dt>Materia</dt><dd>{{ vale.materia }}</dd></div>
+    <div><dt>Maestro</dt><dd>{{ vale.maestro }}</dd></div>
+    <div><dt>Práctica</dt><dd>{{ vale.practica }}</dd></div>
+    <div><dt>Registró</dt><dd>{{ vale.usuario }}</dd></div>
+    {% if vale.estado == 'cerrado' %}<div><dt>Cerrado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}</dd></div>{% endif %}
+  </dl>
+  {% if vale.observaciones %}<p><strong>Observaciones:</strong> {{ vale.observaciones }}</p>{% endif %}
+
+  {% set abierto = vale.estado == 'abierto' and puede('operador') %}
+  <form method="post" action="{{ url_for('vales.devolucion', vale_id=vale.id) }}" id="devolucion"><input type="hidden" name="csrf" value="{{ csrf_token() }}"></form>
+  <div class="tabla-scroll">
+  <table>
+    <thead><tr><th class="num">Cantidad</th><th>Material</th><th>No. de inventario</th><th class="num">Devuelto</th><th class="num">{{ 'Pendiente' if vale.estado == 'abierto' else 'No devuelto' }}</th>
+      {% if abierto %}<th class="num no-imprimir">Devolver ahora</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for i in items %}
+      {% set pendiente = i.cantidad - i.devuelto %}
+      <tr>
+        <td class="num">{{ i.cantidad }} {{ i.unidad }}</td>
+        <td><a href="{{ url_for('producto_detalle', pid=i.producto_id) }}">{{ i.nombre }}</a></td>
+        <td>{{ i.codigo }}</td>
+        <td class="num">{{ i.devuelto }}</td>
+        <td class="num">{{ pendiente }}</td>
+        {% if abierto %}<td class="num no-imprimir">{% if pendiente %}<input class="devolver" type="number" name="devolver_{{ i.id }}" min="0" max="{{ pendiente }}" value="{{ pendiente }}" form="devolucion">{% endif %}</td>{% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="firmas solo-imprimir">
+    <div>Firma del alumno</div><div>Entregó</div>
+  </div>
+</article>
+
+{% if abierto %}
+<div class="acciones no-imprimir">
+  <button form="devolucion">Registrar devolución</button>
+  <form method="post" action="{{ url_for('vales.cerrar_vale', vale_id=vale.id) }}" class="en-linea"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <button class="peligro" onclick="return confirm('¿Cerrar el vale? Lo que no se haya devuelto quedará como consumido.')">Cerrar sin devolver el resto</button>
+  </form>
+</div>
+<p class="nota no-imprimir">Indica cuánto regresa el alumno de cada material. Cuando se devuelve todo, el vale se cierra solo.
+  Para material consumible que no regresa, usa «Cerrar sin devolver el resto».</p>
+{% endif %}
+{% endblock %}

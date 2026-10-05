@@ -306,3 +306,121 @@ def test_importar_solo_codigo_y_ubicacion_no_borra_lo_demas(client):
     html = client.get("/productos/1").get_data(as_text=True)
     assert "Pasillo 4" in html and "Producto A-1" in html and "General" in html
     assert "mínimo 7" in html and "Cambios de ubicación" in html
+
+
+# --------------------------------------------------------------------- vales
+
+DATOS_VALE = {"alumno": "María López", "matricula": "A0123", "materia": "Química I",
+              "maestro": "Dr. Ramírez", "practica": "Titulación ácido-base"}
+
+
+def vale(client, renglones, **extra):
+    data = dict(DATOS_VALE, **extra)
+    data["material"] = [r[0] for r in renglones]
+    data["cantidad"] = [str(r[1]) for r in renglones]
+    return client.post("/vales/nuevo", data=data, follow_redirects=True)
+
+
+def existencia(client, pid):
+    html = client.get(f"/productos/{pid}").get_data(as_text=True)
+    return int(html.split('class="existencia')[1].split("<span>")[1].split("</span>")[0])
+
+
+def test_vale_descuenta_y_muestra_datos(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    nuevo(client, codigo="LAB-2", stock=5)
+    r = vale(client, [("LAB-1 — Producto LAB-1", 3), ("LAB-2", 2), ("", 1)])
+    html = r.get_data(as_text=True)
+    assert "Vale V-00001 registrado" in html
+    for dato in DATOS_VALE.values():
+        assert dato in html
+    assert "LAB-1" in html and "LAB-2" in html
+    assert existencia(client, 1) == 7 and existencia(client, 2) == 3
+    assert "Vale V-00001" in client.get("/movimientos").get_data(as_text=True)
+    assert "3 prestados en vales" in client.get("/productos/1").get_data(as_text=True)
+
+
+def test_vale_sin_existencia_no_registra_nada(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    nuevo(client, codigo="LAB-2", stock=1)
+    r = vale(client, [("LAB-1", 3), ("LAB-2", 5)])
+    assert "No hay existencia suficiente" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10 and existencia(client, 2) == 1
+    assert "No hay vales" in client.get("/vales/?estado=todos").get_data(as_text=True)
+
+
+def test_vale_valida_campos_y_material(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    r = vale(client, [("LAB-1", 1)], maestro="", practica="")
+    assert "Falta: nombre del maestro, nombre de la práctica." in r.get_data(as_text=True)
+    r = vale(client, [("NOEXISTE", 1)])
+    assert "No existe material" in r.get_data(as_text=True)
+    r = vale(client, [("", 1)])
+    assert "Agrega al menos un material" in r.get_data(as_text=True)
+    # el formulario conserva lo capturado
+    assert 'value="María López"' in r.get_data(as_text=True)
+
+
+def test_renglones_repetidos_se_suman(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 2), ("LAB-1", 3)])
+    assert existencia(client, 1) == 5
+    assert "5 × Producto LAB-1" in client.get("/vales/").get_data(as_text=True)
+
+
+def test_devolucion_parcial_y_total(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 4)])
+    r = client.post("/vales/1/devolucion", data={"devolver_1": "1"}, follow_redirects=True)
+    assert "Devolución registrada (1 pza)" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 7
+    assert "debe 3" in client.get("/vales/").get_data(as_text=True)
+    r = client.post("/vales/1/devolucion", data={"devolver_1": "9"}, follow_redirects=True)
+    assert "quedan 3 por devolver" in r.get_data(as_text=True)
+    r = client.post("/vales/1/devolucion", data={"devolver_1": "3"}, follow_redirects=True)
+    assert "el vale quedó cerrado" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10
+    assert "No hay vales" in client.get("/vales/").get_data(as_text=True)
+
+
+def test_cerrar_con_consumibles(client):
+    nuevo(client, codigo="REA-1", stock=10)
+    vale(client, [("REA-1", 4)])
+    r = client.post("/vales/1/cerrar", follow_redirects=True)
+    assert "queda como consumido" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 6
+    r = client.post("/vales/1/devolucion", data={"devolver_1": "1"}, follow_redirects=True)
+    assert "ya está cerrado" in r.get_data(as_text=True)
+
+
+def test_no_desactivar_con_material_prestado(client):
+    nuevo(client, codigo="LAB-1", stock=2)
+    vale(client, [("LAB-1", 2)])
+    r = client.post("/productos/1/activo", data={"activar": "0"}, follow_redirects=True)
+    assert "prestadas en vales" in r.get_data(as_text=True)
+
+
+def test_busqueda_y_exportacion_de_vales(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 1)])
+    vale(client, [("LAB-1", 1)], alumno="Pedro Gómez", maestro="Mtra. Ruiz")
+    html = client.get("/vales/?q=Ruiz").get_data(as_text=True)
+    assert "Pedro Gómez" in html and "María López" not in html
+    html = client.get("/vales/?q=V-00001").get_data(as_text=True)
+    assert "María López" in html and "Pedro Gómez" not in html
+    r = client.get("/vales/exportar.csv?estado=todos")
+    lineas = r.get_data(as_text=True).strip().splitlines()
+    assert len(lineas) == 3 and "numero_inventario" in lineas[0]
+    assert "V-00001" in lineas[1] and "Titulación ácido-base" in lineas[1]
+
+
+def test_permisos_vales(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    crear_usuario(client, "luis", "operador")
+    crear_usuario(client, "vero", "consulta")
+    assert "registrado" in vale(entrar(app, "luis"), [("LAB-1", 1)]).get_data(as_text=True)
+    c = entrar(app, "vero")
+    assert c.get("/vales/").status_code == 200 and c.get("/vales/1").status_code == 200
+    assert c.get("/vales/nuevo").status_code == 403
+    assert c.post("/vales/1/devolucion", data={"devolver_1": "1"}).status_code == 403
+    assert c.post("/vales/1/cerrar").status_code == 403

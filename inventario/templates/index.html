@@ -6,6 +6,7 @@
   <div class="tarjeta"><span>{{ resumen.unidades }}</span>unidades en existencia</div>
   <a class="tarjeta {{ 'alerta' if resumen.bajo_minimo }}" href="{{ url_for('index', estado='bajo') }}">
     <span>{{ resumen.bajo_minimo }}</span>en o bajo el mínimo</a>
+  <a class="tarjeta" href="{{ url_for('vales.lista') }}"><span>{{ vales_abiertos }}</span>vales pendientes de devolver</a>
 </section>
 
 <div class="encabezado">
