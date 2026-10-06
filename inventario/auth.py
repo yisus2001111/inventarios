@@ -9,7 +9,6 @@ from flask import (Blueprint, abort, flash, g, redirect, render_template, reques
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import red
 from .db import ahora, get_db
 
 # Cada rol incluye los permisos de los anteriores.
@@ -141,7 +140,7 @@ MINUTOS_BLOQUEO = 15
 
 
 def claves_intento(nombre):
-    ip = red.ip_cliente()
+    ip = request.remote_addr or ""
     return [(f"{ip}|{nombre}", FALLOS_POR_USUARIO), (ip, FALLOS_POR_IP)]
 
 

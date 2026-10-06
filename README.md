@@ -163,61 +163,6 @@ Los colores siguen la paleta institucional de la UES: vino (Pantone 490 C) y dor
    también puedes subir uno con solo `codigo` y `ubicacion`. La existencia nunca se cambia
    desde la importación.
 
-## Usarlo desde fuera de la red (Cloudflare Tunnel)
-
-Con **Cloudflare Tunnel** (gratis) alumnos y empleados pueden pedir material desde cualquier
-red, por ejemplo con datos móviles. No hay que abrir puertos: el programa `cloudflared`
-corre en la misma computadora y crea una conexión segura (HTTPS) hacia Cloudflare.
-Conviene avisar al área de sistemas de la UES antes de hacerlo.
-
-### Prueba rápida (dirección temporal)
-
-1. Instala cloudflared (una sola vez), en una ventana de comandos:
-   `winget install --id Cloudflare.cloudflared`
-2. Abre el programa como siempre (`python run.py`).
-3. Haz doble clic en **`tunel.bat`**. Aparecerá una dirección como
-   `https://palabras-al-azar.trycloudflare.com`. Deja esa ventana abierta.
-4. Entra a esa dirección, inicia sesión como administrador y en **Configuración →
-   Dirección pública** presiona «Usar esta dirección» y guarda. Imprime de nuevo el
-   cartel en **Vales → Código QR**.
-
-La dirección temporal **cambia cada vez** que abres `tunel.bat`, así que sirve para
-probar; para uso diario usa la dirección permanente.
-
-### Dirección permanente
-
-Necesitas una cuenta gratuita de Cloudflare y un dominio administrado ahí (se compra por
-unos 10 USD al año, o sistemas de la UES puede delegar un subdominio). Luego, una sola vez:
-
-```bat
-cloudflared tunnel login
-cloudflared tunnel create inventario
-cloudflared tunnel route dns inventario inventario.tudominio.com
-```
-
-Crea el archivo `%USERPROFILE%\.cloudflared\config.yml` (cambia el identificador por el que
-mostró `tunnel create`):
-
-```yaml
-tunnel: inventario
-credentials-file: C:\Users\TU_USUARIO\.cloudflared\IDENTIFICADOR.json
-ingress:
-  - hostname: inventario.tudominio.com
-    service: http://localhost:5000
-  - service: http_status:404
-```
-
-Y para que arranque solo con Windows: `cloudflared service install` (como administrador).
-En **Configuración → Dirección pública** escribe `https://inventario.tudominio.com`.
-
-### Seguridad al abrirlo a internet
-
-- Tras **5 contraseñas incorrectas** para un usuario desde la misma conexión (o 20 en
-  total) se bloquean los intentos por **15 minutos**. Detrás del túnel se usa la IP real
-  de cada persona, así que un intruso no bloquea a los demás.
-- Usa contraseñas largas, sobre todo en las cuentas de administrador.
-- La computadora debe quedarse encendida con el programa y el túnel abiertos.
-
 ## Actualizar a una versión nueva
 
 1. **Cierra el programa**: en la ventana donde corre presiona `Ctrl`+`C`.
@@ -244,6 +189,9 @@ python -m pytest
 ```
 
 ## Nota de seguridad
+
+Tras **5 contraseñas incorrectas** para un usuario desde la misma computadora o celular
+(o 20 en total) se bloquean los intentos por **15 minutos**.
 
 Está pensada para usarse dentro de la red de la oficina. Las contraseñas se guardan
 cifradas (hash), pero la conexión es HTTP sin cifrar, así que no la publiques en Internet

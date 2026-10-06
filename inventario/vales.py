@@ -11,7 +11,7 @@ from flask import (Blueprint, Response, abort, flash, g, jsonify, redirect, rend
 from markupsafe import Markup
 
 from . import db as base
-from . import evidencias, red
+from . import evidencias
 from .auth import requiere
 from .db import ErrorInventario, ahora, get_db
 from .utiles import entero, respuesta_csv
@@ -446,14 +446,10 @@ def contador_solicitudes():
 def url_publica():
     """Dirección de la página para alumnos, tal como la deben abrir desde su celular.
 
-    Si en Configuración hay una dirección pública (por ejemplo la del túnel de Cloudflare)
-    se usa esa. Si no, y el encargado entra como «localhost», esa dirección no sirve en
-    otro equipo, así que se sustituye por la IP de esta computadora en la red local.
+    Si el encargado entra como «localhost», esa dirección no sirve en otro equipo, así que
+    se sustituye por la IP de esta computadora en la red local.
     """
-    publica = base.leer_ajuste(get_db(), "direccion_publica")
-    if publica:
-        return publica + url_for("publico.solicitud")
-    url = red.direccion_actual() + url_for("publico.solicitud")
+    url = url_for("publico.solicitud", _external=True)
     host = request.host.split(":")[0]
     if host in ("localhost", "127.0.0.1", "::1"):
         try:

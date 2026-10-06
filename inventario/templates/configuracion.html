@@ -18,17 +18,6 @@
   <p class="nota completo">Usa el logo oficial de la UES. Se recomienda un PNG con fondo transparente.
     Se muestra junto a tu nombre de usuario, en la página de los alumnos, en el cartel del QR y en los vales impresos.</p>
   <fieldset class="completo evidencias">
-    <legend>Acceso desde internet (Cloudflare Tunnel)</legend>
-    <label>Dirección pública
-      <input name="direccion_publica" value="{{ direccion_publica }}" placeholder="https://inventario.ejemplo.com"></label>
-    <p class="nota">Si la llenas, el código QR usará esta dirección y alumnos y empleados podrán pedir
-      material desde cualquier red (con datos móviles). Déjala vacía para usar solo la red interna.</p>
-    {% if por_tunel and direccion_actual != direccion_publica %}
-    <p class="aviso ok">Estás entrando por el túnel: <strong>{{ direccion_actual }}</strong>
-      <button type="button" class="secundario" onclick="this.form.direccion_publica.value='{{ direccion_actual }}'">Usar esta dirección</button></p>
-    {% endif %}
-  </fieldset>
-  <fieldset class="completo evidencias">
     <legend>Identificación en los vales</legend>
     <label class="casilla"><input type="checkbox" name="pedir_firma" value="1" {{ 'checked' if pedir.firma }}> Pedir la firma del alumno (en el celular y en el mostrador)</label>
     <label class="casilla"><input type="checkbox" name="pedir_credencial" value="1" {{ 'checked' if pedir.credencial }}> Pedir foto de la credencial (obligatoria en el celular, opcional en el mostrador)</label>

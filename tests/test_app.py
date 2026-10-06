@@ -932,7 +932,7 @@ def test_migra_vales_sin_columna_solicitante(tmp_path):
 
 
 
-# ----------------------------------------------- acceso desde internet (túnel)
+# ------------------------------------------ seguridad del inicio de sesión
 
 
 def test_bloquea_tras_varios_intentos_fallidos(client, app):
@@ -948,56 +948,24 @@ def test_bloquea_tras_varios_intentos_fallidos(client, app):
     assert entrar(app, "admin", "secreta1").get("/").status_code == 200
 
 
-def test_el_bloqueo_es_por_ip_real_detras_del_tunel(client, app):
-    crear_usuario(client, "luis", "operador")
-    atacante = {"CF-Connecting-IP": "203.0.113.9"}
-    c = app.test_client()
-    for _ in range(5):
-        c.post("/login", data={"usuario": "luis", "contrasena": "mala"}, headers=atacante)
-    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"}, headers=atacante)
-    assert r.status_code == 429
-    # el verdadero Luis, desde otra IP (también por el túnel), sí entra
-    luis = app.test_client()
-    r = luis.post("/login", data={"usuario": "luis", "contrasena": "clave123"},
-                  headers={"CF-Connecting-IP": "198.51.100.7"})
-    assert r.status_code == 302 and luis.get("/").status_code == 200
-
-
-def test_encabezado_de_cloudflare_solo_se_cree_desde_la_propia_computadora(client, app):
-    crear_usuario(client, "luis", "operador")
-    c = app.test_client()
-    for i in range(5):  # alguien en la red cambia el encabezado en cada intento
-        c.post("/login", data={"usuario": "luis", "contrasena": "mala"},
-               headers={"CF-Connecting-IP": f"10.0.0.{i}"},
-               environ_base={"REMOTE_ADDR": "192.168.1.50"})
-    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"},
-               environ_base={"REMOTE_ADDR": "192.168.1.50"})
-    assert r.status_code == 429
-
-
-def test_direccion_publica_en_el_qr(client):
-    r = client.post("/configuracion", data={"institucion": "UES",
-                                            "direccion_publica": "https://inv.ejemplo.com/"},
-                    follow_redirects=True)
-    assert "Configuración guardada" in r.get_data(as_text=True)
-    assert "https://inv.ejemplo.com/solicitud/" in client.get("/vales/qr").get_data(as_text=True)
-    r = client.post("/configuracion", data={"institucion": "UES",
-                                            "direccion_publica": "javascript:alert(1)"},
-                    follow_redirects=True)
-    assert "debe ser como https://" in r.get_data(as_text=True)
-    client.post("/configuracion", data={"institucion": "UES", "direccion_publica": ""})
-    assert "inv.ejemplo.com" not in client.get("/vales/qr").get_data(as_text=True)
-
-
-def test_configuracion_detecta_el_tunel(client, app):
-    tunel = {"CF-Connecting-IP": "203.0.113.9", "Host": "abc.trycloudflare.com"}
-    c = app.test_client()
-    c.post("/login", data={"usuario": "admin", "contrasena": "secreta1"}, headers=tunel)
-    html = c.get("/configuracion", headers=tunel).get_data(as_text=True)
-    assert "Estás entrando por el túnel" in html and "https://abc.trycloudflare.com" in html
-
-
 def test_encabezados_de_seguridad(client):
     r = client.get("/")
     assert r.headers["X-Frame-Options"] == "DENY"
     assert r.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_qr_usa_la_red_local_y_no_localhost(client):
+    html = client.get("/vales/qr", base_url="http://localhost:5000").get_data(as_text=True)
+    url = html.split('class="url">')[1].split("<")[0]
+    assert url.endswith(":5000/solicitud/") and "localhost" not in url
+    assert url.startswith("http://")
+
+
+def test_encabezado_falso_de_ip_no_evita_el_bloqueo(client, app):
+    crear_usuario(client, "luis", "operador")
+    c = app.test_client()
+    for i in range(5):
+        c.post("/login", data={"usuario": "luis", "contrasena": "mala"},
+               headers={"CF-Connecting-IP": f"10.0.0.{i}", "X-Forwarded-For": f"10.0.1.{i}"})
+    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"})
+    assert r.status_code == 429
