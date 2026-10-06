@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block titulo %}Inventario{% endblock %} · Inventario interno</title>
+  <title>{% block titulo %}Inventario{% endblock %} · Inventario {{ institucion }}</title>
+  <meta name="theme-color" content="#5d1a2c">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   {% block cabeza %}{% endblock %}
 </head>
 <body>
   <header class="barra">
-    <a class="marca" href="{{ url_for('index') if usuario else url_for('publico.solicitud') }}">Inventario interno</a>
+    <a class="marca" href="{{ url_for('index') if usuario else url_for('publico.solicitud') }}">Inventario<small>{{ institucion }}</small></a>
     {% if usuario %}
     <nav>
       {% set en_espera = solicitudes_en_espera() %}
@@ -20,13 +21,17 @@
       {% if puede('admin') %}
         <a href="{{ url_for('importar') }}">Importar</a>
         <a href="{{ url_for('auth.usuarios') }}">Usuarios</a>
+        <a href="{{ url_for('configuracion') }}">Configuración</a>
       {% endif %}
     </nav>
+    {% endif %}
     <div class="sesion">
+      {% if hay_logo %}<img class="logo" src="{{ url_for('logo', v=version_logo) }}" alt="Logo {{ institucion }}">{% endif %}
+      {% if usuario %}
       <a href="{{ url_for('auth.mi_contrasena') }}" title="Cambiar mi contraseña">{{ usuario.nombre or usuario.usuario }}</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="en-linea"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="enlace">Salir</button></form>
+      {% endif %}
     </div>
-    {% endif %}
   </header>
   <main>
     {% with mensajes = get_flashed_messages(with_categories=true) %}

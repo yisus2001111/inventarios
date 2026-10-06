@@ -136,7 +136,7 @@ def test_exportar_csv(client):
     assert r.mimetype == "text/csv" and "A-1" in r.get_data(as_text=True)
     r = client.get("/exportar/movimientos.csv?tipo=baja")
     lineas = r.get_data(as_text=True).strip().splitlines()
-    assert len(lineas) == 2 and ",baja,1,9," in lineas[1]
+    assert len(lineas) == 2 and ",Baja,,1,9," in lineas[1]
 
 
 # ------------------------------------------------------------------ usuarios
@@ -571,3 +571,150 @@ def test_migra_base_de_datos_de_version_anterior(tmp_path):
     assert existencia(c, 1) == 7
     # ya admite solicitudes de alumnos
     assert "V-00002" in solicitar(app.test_client(), [("LAB-1", 1)]).get_data(as_text=True)
+
+
+# ------------------------------------- vales en el historial, borrado y marca
+
+
+def test_vale_aparece_como_vale_y_no_como_baja(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 3)])
+    client.post("/vales/1/devolucion", data={"devolver_1": "1"})
+    html = client.get("/movimientos").get_data(as_text=True)
+    assert 'class="etiqueta prestamo" href="/vales/1">Vale V-00001' in html
+    assert 'class="etiqueta devolucion" href="/vales/1">Devolución V-00001' in html
+    assert 'etiqueta baja' not in html
+    html = client.get("/movimientos?tipo=vale").get_data(as_text=True)
+    assert "Vale V-00001" in html and "Devolución V-00001" not in html
+    assert "−3" in html
+    assert "Vale V-00001" in client.get("/movimientos?q=V-00001").get_data(as_text=True)
+    csv = client.get("/exportar/movimientos.csv?tipo=devolucion").get_data(as_text=True)
+    assert ",Devolución,V-00001,1," in csv
+    # la ficha del producto también lo muestra como vale
+    assert "Vale V-00001" in client.get("/productos/1").get_data(as_text=True)
+
+
+def test_no_se_puede_registrar_vale_desde_alta_baja(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    r = client.post("/productos/1/movimiento", data={"tipo": "vale", "cantidad": 1},
+                    follow_redirects=True)
+    assert "Tipo de movimiento no válido" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10
+
+
+def test_admin_elimina_registros_y_corrige_existencia(client):
+    nuevo(client, codigo="A-1", stock=10)          # movimiento 1: alta inicial 10
+    mover(client, 1, "baja", 4)                    # movimiento 2
+    mover(client, 1, "alta", 2)                    # movimiento 3
+    assert existencia(client, 1) == 8
+    r = client.post("/movimientos/eliminar", data={"ids": ["2", "3"], "corregir": "1"},
+                    follow_redirects=True)
+    assert "2 registros eliminados y existencia corregida" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10
+    # sin corregir: solo se borra la línea
+    client.post("/movimientos/eliminar", data={"ids": ["1"]})
+    assert existencia(client, 1) == 10
+    assert "Sin movimientos" in client.get("/productos/1").get_data(as_text=True)
+
+
+def test_eliminar_no_deja_existencia_negativa(client):
+    nuevo(client, codigo="A-1", stock=5)
+    mover(client, 1, "baja", 4)
+    r = client.post("/movimientos/eliminar", data={"ids": ["1"], "corregir": "1"},
+                    follow_redirects=True)
+    assert "quedaría negativa" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 1
+
+
+def test_eliminar_movimientos_ignora_los_de_vales(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 3)])
+    r = client.post("/movimientos/eliminar", data={"ids": ["2"], "corregir": "1"},
+                    follow_redirects=True)
+    assert "Marca al menos un registro" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 7
+
+
+def test_admin_elimina_vale_y_regresa_material(client):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 4)])
+    client.post("/vales/1/devolucion", data={"devolver_1": "1"})
+    client.post("/vales/1/cerrar")                 # 3 quedaron como consumidos
+    assert existencia(client, 1) == 7
+    r = client.post("/vales/1/eliminar", follow_redirects=True)
+    assert "Vale V-00001 eliminado" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10
+    assert "V-00001" not in client.get("/movimientos").get_data(as_text=True)
+    assert client.get("/vales/1").status_code == 404
+
+
+def test_solo_admin_elimina(client, app):
+    nuevo(client, codigo="LAB-1", stock=10)
+    vale(client, [("LAB-1", 1)])
+    crear_usuario(client, "luis", "operador")
+    op = entrar(app, "luis")
+    assert op.post("/movimientos/eliminar", data={"ids": ["1"]}).status_code == 403
+    assert op.post("/vales/1/eliminar").status_code == 403
+    assert "Eliminar" not in op.get("/movimientos").get_data(as_text=True)
+    assert op.get("/configuracion").status_code == 403
+
+
+PNG_1PX = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000d49444154789c6360f8cf000000030101007a4d6f0f0000000049454e44ae426082")
+
+
+def test_configuracion_logo_e_institucion(client, app):
+    html = client.get("/").get_data(as_text=True)
+    assert "UES San Luis Río Colorado" in html and 'class="logo"' not in html
+    r = client.post("/configuracion", data={"institucion": "UES San Luis Río Colorado",
+                                            "logo": (io.BytesIO(PNG_1PX), "logo.png")},
+                    content_type="multipart/form-data", follow_redirects=True)
+    assert "Configuración guardada" in r.get_data(as_text=True)
+    html = client.get("/").get_data(as_text=True)
+    assert 'class="logo" src="/logo?v=' in html
+    # el logo se ve también en la página pública de alumnos, sin sesión
+    alumno = app.test_client()
+    assert 'class="logo"' in alumno.get("/solicitud/").get_data(as_text=True)
+    r = alumno.get("/logo")
+    assert r.status_code == 200 and r.mimetype == "image/png" and r.data == PNG_1PX
+    # se rechazan archivos que no son imagen (por ejemplo SVG o HTML)
+    r = client.post("/configuracion", data={"institucion": "X",
+                                            "logo": (io.BytesIO(b"<svg onload=alert(1)>"), "l.svg")},
+                    content_type="multipart/form-data", follow_redirects=True)
+    assert "PNG, JPG o WEBP" in r.get_data(as_text=True)
+    client.post("/configuracion", data={"institucion": "UES SLRC", "quitar_logo": "1"})
+    html = client.get("/").get_data(as_text=True)
+    assert "UES SLRC" in html and 'class="logo"' not in html
+    assert alumno.get("/logo").status_code == 404
+
+
+def test_migra_movimientos_de_vales_anteriores(tmp_path):
+    import sqlite3
+    ruta = tmp_path / "vieja.db"
+    con = sqlite3.connect(ruta)
+    con.executescript("""
+        CREATE TABLE productos (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL, categoria TEXT NOT NULL DEFAULT '', ubicacion TEXT NOT NULL DEFAULT '',
+            unidad TEXT NOT NULL DEFAULT 'pza', stock INTEGER NOT NULL DEFAULT 0,
+            stock_minimo INTEGER NOT NULL DEFAULT 0, activo INTEGER NOT NULL DEFAULT 1, creado_en TEXT NOT NULL);
+        CREATE TABLE movimientos (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            producto_id INTEGER NOT NULL REFERENCES productos(id),
+            tipo TEXT NOT NULL CHECK (tipo IN ('alta', 'baja')), cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+            stock_resultante INTEGER NOT NULL, motivo TEXT NOT NULL DEFAULT '',
+            responsable TEXT NOT NULL DEFAULT '', fecha TEXT NOT NULL);
+        INSERT INTO productos (codigo, nombre, stock, creado_en) VALUES ('LAB-1', 'Matraz', 9, '2026-01-01');
+        INSERT INTO movimientos (producto_id, tipo, cantidad, stock_resultante, motivo, responsable, fecha) VALUES
+            (1, 'alta', 10, 10, 'Alta inicial', 'admin', '2026-01-01 09:00:00'),
+            (1, 'baja', 2, 8, 'Vale V-00012 · Ana · Péndulo', 'luis', '2026-01-02 10:00:00'),
+            (1, 'alta', 1, 9, 'Devolución vale V-00012', 'luis', '2026-01-02 12:00:00');
+    """)
+    con.commit()
+    con.close()
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": str(ruta)})
+    c = app.test_client()
+    c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "secreta1",
+                                          "confirmacion": "secreta1"})
+    html = c.get("/movimientos").get_data(as_text=True)
+    assert "Vale V-00012" in html and "Devolución V-00012" in html
+    assert 'class="etiqueta alta"' in html and 'etiqueta baja' not in html

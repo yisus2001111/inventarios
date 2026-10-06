@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_movimiento.html" as mov with context %}
 {% block titulo %}{{ producto.codigo }}
 {% if cambios_ubicacion %}
 <h2>Cambios de ubicación</h2>
@@ -66,8 +67,8 @@
   <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in movimientos %}
-    <tr><td>{{ m.fecha }}</td><td><span class="etiqueta {{ m.tipo }}">{{ m.tipo }}</span></td>
-      <td class="num">{{ '+' if m.tipo == 'alta' else '−' }}{{ m.cantidad }}</td>
+    <tr><td>{{ m.fecha }}</td><td>{{ mov.tipo(m) }}</td>
+      <td class="num">{{ mov.signo(m) }}{{ m.cantidad }}</td>
       <td class="num">{{ m.stock_resultante }}</td><td>{{ m.motivo }}</td><td>{{ m.responsable }}</td></tr>
   {% else %}
     <tr><td colspan="6" class="vacio">Sin movimientos todavía.</td></tr>

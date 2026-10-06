@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block titulo %}Configuración{% endblock %}
+{% block contenido %}
+<h1>Configuración</h1>
+<form method="post" enctype="multipart/form-data" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label class="completo">Nombre de la institución (aparece en el encabezado, el cartel QR y los vales)
+    <input name="institucion" maxlength="120" value="{{ institucion }}" required></label>
+  <div class="completo logo-actual">
+    {% if hay_logo %}
+      <img src="{{ url_for('logo', v=version_logo) }}" alt="Logo actual">
+      <label class="casilla"><input type="checkbox" name="quitar_logo" value="1"> Quitar el logo</label>
+    {% else %}
+      <p class="nota">Todavía no hay logo.</p>
+    {% endif %}
+  </div>
+  <label class="completo">{{ 'Cambiar logo' if hay_logo else 'Subir logo' }} (PNG, JPG o WEBP, máximo 2 MB)
+    <input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
+  <p class="nota completo">Usa el logo oficial de la UES. Se recomienda un PNG con fondo transparente.
+    Se muestra junto a tu nombre de usuario, en la página de los alumnos, en el cartel del QR y en los vales impresos.</p>
+  <div class="acciones completo"><button>Guardar</button></div>
+</form>
+{% endblock %}

@@ -1,6 +1,6 @@
-# Inventario interno
+# Inventario · UES San Luis Río Colorado
 
-Aplicación web sencilla para llevar el control de inventario interno: alta de productos,
+Aplicación web para el control de inventario y vales de material de laboratorio: alta de productos,
 **altas (entradas)** y **bajas (salidas)** de existencia con historial de quién, cuándo y por qué.
 
 Funciona en el navegador; se instala en una computadora de la oficina y cualquier equipo
@@ -18,7 +18,12 @@ de la red puede usarla. Los datos se guardan en un único archivo SQLite (`inven
   existencia resultante. No se permite dar de baja más de lo que hay.
 - **Alta / baja rápida**: se teclea o escanea el código (compatible con lector de código de barras).
 - **Alertas de stock bajo**: los productos en o por debajo del mínimo se resaltan y se pueden filtrar.
-- **Historial** de movimientos con filtros por tipo, fecha y texto.
+- **Historial** de movimientos con filtros por tipo (alta, baja, vale, devolución), fecha y
+  texto. Los préstamos aparecen como **Vale V-00001** (con enlace al vale) y sus
+  devoluciones como **Devolución V-00001**, no como altas o bajas.
+- **Eliminar registros de prueba** (solo administrador): desde el historial se marcan
+  líneas y se eliminan, opcionalmente deshaciendo su efecto en la existencia; un vale se
+  elimina completo desde el propio vale y su material regresa a la existencia.
 - **Importar CSV** para cargar el inventario inicial (por ejemplo, desde Excel) y
   **exportar CSV** de productos y movimientos.
 - **Desactivar** productos que ya no se usan (solo si su existencia es 0), sin perder su historial.
@@ -109,6 +114,15 @@ práctica o material, filtrar por estado y fechas, y exportar a CSV. Cada vale s
 
 Permisos: operadores y administradores entregan, rechazan y capturan vales y
 devoluciones; el rol de consulta solo puede verlos.
+
+## Logo y nombre de la institución
+
+En **Configuración** (solo administrador) se cambia el nombre que aparece en el
+encabezado y se sube el **logo oficial** (PNG, JPG o WEBP, máximo 2 MB; mejor PNG con fondo
+transparente). El logo aparece junto al nombre de usuario, en la página de los alumnos, en
+el cartel del QR y en los vales impresos. Se guarda dentro de `inventario.db`.
+
+Los colores siguen la paleta institucional de la UES: vino (Pantone 490 C) y dorado.
 
 ## Cargar tu inventario actual
 

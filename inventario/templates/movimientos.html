@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_movimiento.html" as mov with context %}
 {% block titulo %}Historial{% endblock %}
 {% block contenido %}
 <div class="encabezado">
@@ -8,29 +9,53 @@
 <form class="filtros" method="get">
   <input type="search" name="q" value="{{ q }}" placeholder="Producto, motivo o usuario">
   <select name="tipo">
-    <option value="">Altas y bajas</option>
-    <option value="alta" {{ 'selected' if tipo == 'alta' }}>Solo altas</option>
-    <option value="baja" {{ 'selected' if tipo == 'baja' }}>Solo bajas</option>
+    <option value="">Todos los tipos</option>
+    {% for v, t in [('alta','Altas'),('baja','Bajas'),('vale','Vales (préstamos)'),('devolucion','Devoluciones de vales')] %}
+      <option value="{{ v }}" {{ 'selected' if tipo == v }}>{{ t }}</option>
+    {% endfor %}
   </select>
   <label>Desde <input type="date" name="desde" value="{{ desde }}"></label>
   <label>Hasta <input type="date" name="hasta" value="{{ hasta }}"></label>
   <button>Filtrar</button>
 </form>
 <p class="nota">{{ total }} movimiento{{ '' if total == 1 else 's' }}</p>
+{% set borrar = puede('admin') and movimientos %}
+{% if borrar %}
+<form method="post" action="{{ url_for('eliminar_movimientos') }}" id="borrar" class="barra-mover peligro-suave"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="volver" value="{{ request.full_path }}">
+  <span><strong id="marcados">0</strong> marcados</span>
+  <label class="casilla"><input type="checkbox" name="corregir" value="1" checked> Deshacer su efecto en la existencia</label>
+  <button class="peligro">Eliminar marcados</button>
+  <span class="nota">Para limpiar pruebas. Los vales se eliminan desde el propio vale.</span>
+</form>
+{% endif %}
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
+  <thead><tr>{% if borrar %}<th class="casilla"><input type="checkbox" id="todos" title="Marcar todos los de esta página"></th>{% endif %}<th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in movimientos %}
-    <tr><td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
-      <td><span class="etiqueta {{ m.tipo }}">{{ m.tipo }}</span></td>
-      <td class="num">{{ '+' if m.tipo == 'alta' else '−' }}{{ m.cantidad }}</td>
+    <tr>{% if borrar %}<td class="casilla">{% if not m.vale_id %}<input type="checkbox" name="ids" value="{{ m.id }}" form="borrar">{% endif %}</td>{% endif %}<td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
+      <td>{{ mov.tipo(m) }}</td>
+      <td class="num">{{ mov.signo(m) }}{{ m.cantidad }}</td>
       <td class="num">{{ m.stock_resultante }} {{ m.unidad }}</td><td>{{ m.motivo }}</td><td>{{ m.responsable }}</td></tr>
   {% else %}
-    <tr><td colspan="7" class="vacio">No hay movimientos con esos filtros.</td></tr>
+    <tr><td colspan="8" class="vacio">No hay movimientos con esos filtros.</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% include "_paginacion.html" %}
+{% if borrar %}
+<script>
+  const casillas = [...document.querySelectorAll('input[name=ids]')];
+  const contar = () => document.getElementById('marcados').textContent = casillas.filter(c => c.checked).length;
+  casillas.forEach(c => c.addEventListener('change', contar));
+  document.getElementById('todos').addEventListener('change', e => { casillas.forEach(c => c.checked = e.target.checked); contar(); });
+  document.getElementById('borrar').addEventListener('submit', e => {
+    const n = casillas.filter(c => c.checked).length;
+    if (!n) { e.preventDefault(); alert('Marca al menos un registro.'); return; }
+    if (!confirm('¿Eliminar ' + n + ' registro(s) del historial? No se puede deshacer.')) e.preventDefault();
+  });
+</script>
+{% endif %}
 {% endblock %}

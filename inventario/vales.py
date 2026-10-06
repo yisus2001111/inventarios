@@ -102,11 +102,11 @@ def insertar(db, datos, renglones, **columnas):
 def descontar(db, vale_id, usuario):
     """Saca del inventario el material del vale (al entregarlo)."""
     vale = db.execute("SELECT alumno, practica FROM vales WHERE id = ?", (vale_id,)).fetchone()
-    motivo = f"Vale {folio(vale_id)} · {vale['alumno']} · {vale['practica']}"
+    motivo = f"{vale['alumno']} · {vale['practica']}"
     for item in db.execute("SELECT producto_id, cantidad FROM vale_items WHERE vale_id = ? "
                            "ORDER BY id", (vale_id,)).fetchall():
-        base.registrar_movimiento(db, item["producto_id"], "baja", item["cantidad"], motivo,
-                                  usuario)
+        base.registrar_movimiento(db, item["producto_id"], "vale", item["cantidad"], motivo,
+                                  usuario, vale_id=vale_id)
 
 
 def crear_vale(db, datos, renglones, usuario):
@@ -185,14 +185,34 @@ def devolver(db, vale, devoluciones, usuario):
                 f"De «{item['nombre']}» quedan {pendiente} por devolver; no se pueden devolver {cantidad}."
             )
         db.execute("UPDATE vale_items SET devuelto = devuelto + ? WHERE id = ?", (cantidad, item_id))
-        base.registrar_movimiento(db, item["producto_id"], "alta", cantidad,
-                                  f"Devolución vale {folio(vale['id'])}", usuario)
+        base.registrar_movimiento(db, item["producto_id"], "devolucion", cantidad,
+                                  f"{vale['alumno']} · {vale['practica']}", usuario,
+                                  vale_id=vale["id"])
         total += cantidad
     queda = db.execute("SELECT COALESCE(SUM(cantidad - devuelto), 0) FROM vale_items "
                        "WHERE vale_id = ?", (vale["id"],)).fetchone()[0]
     if queda == 0:
         cerrar(db, vale["id"], usuario)
     return total
+
+
+def eliminar_vale(db, vale_id):
+    """Borra un vale por completo (para limpiar pruebas) y deshace su efecto en el inventario.
+
+    Lo que el vale tenga fuera (entregado y no devuelto, incluido lo consumido) regresa a la
+    existencia; se borran también sus movimientos del historial.
+    """
+    vale = db.execute("SELECT estado FROM vales WHERE id = ?", (vale_id,)).fetchone()
+    if vale is None:
+        raise ErrorInventario("El vale no existe.")
+    if vale["estado"] in ("abierto", "cerrado"):
+        for item in db.execute("SELECT producto_id, cantidad, devuelto FROM vale_items "
+                               "WHERE vale_id = ?", (vale_id,)).fetchall():
+            db.execute("UPDATE productos SET stock = stock + ? WHERE id = ?",
+                       (item["cantidad"] - item["devuelto"], item["producto_id"]))
+    db.execute("DELETE FROM movimientos WHERE vale_id = ?", (vale_id,))
+    db.execute("DELETE FROM vale_items WHERE vale_id = ?", (vale_id,))
+    db.execute("DELETE FROM vales WHERE id = ?", (vale_id,))
 
 
 def cerrar(db, vale_id, usuario):
@@ -342,6 +362,17 @@ def rechazar_vale(vale_id):
     else:
         flash("Solicitud rechazada. El alumno lo verá en su celular.", "ok")
     return redirect(url_for("vales.detalle", vale_id=vale_id))
+
+
+@bp.route("/<int:vale_id>/eliminar", methods=["POST"])
+@requiere("admin")
+def eliminar(vale_id):
+    db = get_db()
+    obtener_vale(vale_id)
+    eliminar_vale(db, vale_id)
+    db.commit()
+    flash(f"Vale {folio(vale_id)} eliminado; su material se regresó a la existencia.", "ok")
+    return redirect(url_for("vales.lista", estado="todos"))
 
 
 @bp.route("/solicitudes.json")

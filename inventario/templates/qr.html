@@ -2,6 +2,8 @@
 {% block titulo %}Código QR para alumnos{% endblock %}
 {% block contenido %}
 <div class="cartel">
+  {% if hay_logo %}<img class="logo-cartel" src="{{ url_for('logo', v=version_logo) }}" alt="Logo {{ institucion }}">{% endif %}
+  <p class="institucion">{{ institucion }}</p>
   <h1>Solicita tu material</h1>
   <p>Escanea con la cámara de tu celular</p>
   <div class="qr">{{ svg }}</div>

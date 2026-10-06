@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_movimiento.html" as mov with context %}
 {% block titulo %}Alta / baja rápida{% endblock %}
 {% block contenido %}
 <h1>Alta / baja rápida</h1>
@@ -21,8 +22,8 @@
   <tbody>
   {% for m in ultimos %}
     <tr><td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
-      <td><span class="etiqueta {{ m.tipo }}">{{ m.tipo }}</span></td>
-      <td class="num">{{ '+' if m.tipo == 'alta' else '−' }}{{ m.cantidad }}</td>
+      <td>{{ mov.tipo(m) }}</td>
+      <td class="num">{{ mov.signo(m) }}{{ m.cantidad }}</td>
       <td class="num">{{ m.stock_resultante }} {{ m.unidad }}</td><td>{{ m.responsable }}</td></tr>
   {% else %}
     <tr><td colspan="6" class="vacio">Sin movimientos todavía.</td></tr>

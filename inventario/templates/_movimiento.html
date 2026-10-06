@@ -1,0 +1,9 @@
+{# Etiqueta y signo de un movimiento; los de vales enlazan a su vale. #}
+{% macro tipo(m) -%}
+  {%- if m.vale_id -%}
+    <a class="etiqueta {{ 'prestamo' if m.tipo == 'vale' else m.tipo }}" href="{{ url_for('vales.detalle', vale_id=m.vale_id) }}">{{ nombres_tipo[m.tipo] }} {{ folio(m.vale_id) }}</a>
+  {%- else -%}
+    <span class="etiqueta {{ m.tipo }}">{{ nombres_tipo[m.tipo] }}</span>
+  {%- endif -%}
+{%- endmacro %}
+{% macro signo(m) %}{{ '+' if m.tipo in ('alta', 'devolucion') else '−' }}{% endmacro %}

@@ -31,6 +31,21 @@ VALES_DDL = """CREATE TABLE IF NOT EXISTS {nombre} (
     motivo_rechazo TEXT    NOT NULL DEFAULT ''
 );"""
 
+# Tipos de movimiento: alta y baja (manuales), vale (préstamo) y devolucion (de un vale).
+TIPOS_ENTRADA = ("alta", "devolucion")
+TIPOS = ("alta", "baja", "vale", "devolucion")
+MOVIMIENTOS_DDL = """CREATE TABLE IF NOT EXISTS {nombre} (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id      INTEGER NOT NULL REFERENCES productos(id),
+    tipo             TEXT    NOT NULL CHECK (tipo IN ('alta', 'baja', 'vale', 'devolucion')),
+    cantidad         INTEGER NOT NULL CHECK (cantidad > 0),
+    stock_resultante INTEGER NOT NULL,
+    motivo           TEXT    NOT NULL DEFAULT '',
+    responsable      TEXT    NOT NULL DEFAULT '',
+    fecha            TEXT    NOT NULL,
+    vale_id          INTEGER REFERENCES vales(id)
+);"""
+
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS productos (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,15 +60,11 @@ CREATE TABLE IF NOT EXISTS productos (
     creado_en     TEXT    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS movimientos (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    producto_id      INTEGER NOT NULL REFERENCES productos(id),
-    tipo             TEXT    NOT NULL CHECK (tipo IN ('alta', 'baja')),
-    cantidad         INTEGER NOT NULL CHECK (cantidad > 0),
-    stock_resultante INTEGER NOT NULL,
-    motivo           TEXT    NOT NULL DEFAULT '',
-    responsable      TEXT    NOT NULL DEFAULT '',
-    fecha            TEXT    NOT NULL
+{movimientos}
+
+CREATE TABLE IF NOT EXISTS ajustes (
+    clave  TEXT PRIMARY KEY,
+    valor  BLOB
 );
 
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -90,7 +101,9 @@ CREATE INDEX IF NOT EXISTS idx_vale_items_producto ON vale_items(producto_id);
 CREATE INDEX IF NOT EXISTS idx_vales_fecha ON vales(fecha);
 CREATE INDEX IF NOT EXISTS idx_mov_producto ON movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
-""".replace("{vales}", VALES_DDL.format(nombre="vales"))
+CREATE INDEX IF NOT EXISTS idx_mov_vale ON movimientos(vale_id);
+""".replace("{vales}", VALES_DDL.format(nombre="vales")).replace(
+    "{movimientos}", MOVIMIENTOS_DDL.format(nombre="movimientos"))
 
 
 class ErrorInventario(Exception):
@@ -118,6 +131,7 @@ def cerrar_db(_exc=None):
 def init_db():
     db = get_db()
     migrar_vales(db)
+    migrar_movimientos(db)
     db.executescript(ESQUEMA)
 
 
@@ -179,12 +193,45 @@ def crear_producto(db, codigo, nombre, categoria="", ubicacion="", unidad="pza",
     return producto_id
 
 
-def registrar_movimiento(db, producto_id, tipo, cantidad, motivo="", responsable=""):
-    """Registra una alta (entrada) o baja (salida) y actualiza la existencia.
+def migrar_movimientos(db):
+    """Agrega los tipos «vale» y «devolucion» a movimientos de versiones anteriores.
+
+    Los movimientos que antes se guardaban como baja/alta de un vale se reclasifican
+    y se ligan a su vale a partir del folio escrito en el motivo.
+    """
+    fila = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' "
+                      "AND name = 'movimientos'").fetchone()
+    if fila is None or "devolucion" in fila[0]:
+        return
+    columnas = ("id, producto_id, tipo, cantidad, stock_resultante, motivo, responsable, "
+                "fecha")
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.executescript(f"""
+            BEGIN;
+            {MOVIMIENTOS_DDL.format(nombre="movimientos_nueva")}
+            INSERT INTO movimientos_nueva ({columnas}) SELECT {columnas} FROM movimientos;
+            UPDATE movimientos_nueva SET tipo = 'vale',
+                   vale_id = CAST(substr(motivo, 8, 5) AS INTEGER)
+             WHERE tipo = 'baja' AND motivo LIKE 'Vale V-%';
+            UPDATE movimientos_nueva SET tipo = 'devolucion',
+                   vale_id = CAST(substr(motivo, 19, 5) AS INTEGER)
+             WHERE tipo = 'alta' AND motivo LIKE 'Devolución vale V-%';
+            DROP TABLE movimientos;
+            ALTER TABLE movimientos_nueva RENAME TO movimientos;
+            COMMIT;
+        """)
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
+
+
+def registrar_movimiento(db, producto_id, tipo, cantidad, motivo="", responsable="",
+                         vale_id=None):
+    """Registra una entrada (alta, devolución) o salida (baja, vale) y actualiza la existencia.
 
     Devuelve la existencia resultante. Lanza ErrorInventario si la operación no es válida.
     """
-    if tipo not in ("alta", "baja"):
+    if tipo not in TIPOS:
         raise ErrorInventario("Tipo de movimiento no válido.")
     if cantidad is None or cantidad <= 0:
         raise ErrorInventario("La cantidad debe ser mayor que cero.")
@@ -195,24 +242,65 @@ def registrar_movimiento(db, producto_id, tipo, cantidad, motivo="", responsable
     if not producto["activo"]:
         raise ErrorInventario("El producto está desactivado; reactívalo para moverlo.")
 
-    if tipo == "alta":
+    if tipo in TIPOS_ENTRADA:
         nuevo = producto["stock"] + cantidad
     else:
         if cantidad > producto["stock"]:
             raise ErrorInventario(
-                f"No hay existencia suficiente: hay {producto['stock']} "
-                f"{producto['unidad']} y se intentó dar de baja {cantidad}."
+                f"No hay existencia suficiente de «{producto['nombre']}»: hay "
+                f"{producto['stock']} {producto['unidad']} y se intentó sacar {cantidad}."
             )
         nuevo = producto["stock"] - cantidad
 
     db.execute("UPDATE productos SET stock = ? WHERE id = ?", (nuevo, producto_id))
     db.execute(
         """INSERT INTO movimientos (producto_id, tipo, cantidad, stock_resultante,
-                                    motivo, responsable, fecha)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (producto_id, tipo, cantidad, nuevo, motivo.strip(), responsable.strip(), ahora()),
+                                    motivo, responsable, fecha, vale_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (producto_id, tipo, cantidad, nuevo, motivo.strip(), responsable.strip(), ahora(),
+         vale_id),
     )
     return nuevo
+
+
+def eliminar_movimientos(db, ids, corregir_existencia=True):
+    """Borra movimientos manuales (para limpiar pruebas). Devuelve cuántos se borraron.
+
+    Con `corregir_existencia` se deshace su efecto en la existencia del producto. Los
+    movimientos de vales no se borran aquí: se eliminan junto con su vale.
+    """
+    if not ids:
+        return 0
+    filas = db.execute(
+        f"""SELECT m.*, p.nombre, p.stock FROM movimientos m
+            JOIN productos p ON p.id = m.producto_id
+            WHERE m.id IN ({', '.join('?' * len(ids))}) AND m.vale_id IS NULL
+            ORDER BY m.id DESC""",
+        list(ids),
+    ).fetchall()
+    for m in filas:
+        if corregir_existencia:
+            efecto = m["cantidad"] if m["tipo"] in TIPOS_ENTRADA else -m["cantidad"]
+            stock = db.execute("SELECT stock FROM productos WHERE id = ?",
+                               (m["producto_id"],)).fetchone()[0]
+            if stock - efecto < 0:
+                raise ErrorInventario(
+                    f"No se puede deshacer la {m['tipo']} de {m['cantidad']} de «{m['nombre']}»: "
+                    f"la existencia quedaría negativa (hay {stock}).")
+            db.execute("UPDATE productos SET stock = ? WHERE id = ?",
+                       (stock - efecto, m["producto_id"]))
+        db.execute("DELETE FROM movimientos WHERE id = ?", (m["id"],))
+    return len(filas)
+
+
+def leer_ajuste(db, clave, defecto=None):
+    fila = db.execute("SELECT valor FROM ajustes WHERE clave = ?", (clave,)).fetchone()
+    return defecto if fila is None else fila[0]
+
+
+def guardar_ajuste(db, clave, valor):
+    db.execute("INSERT INTO ajustes (clave, valor) VALUES (?, ?) "
+               "ON CONFLICT (clave) DO UPDATE SET valor = excluded.valor", (clave, valor))
 
 
 def cambiar_ubicacion(db, producto_id, nueva, usuario):

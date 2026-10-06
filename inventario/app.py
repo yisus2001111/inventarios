@@ -6,7 +6,7 @@ import os
 import secrets
 from datetime import timedelta
 
-from flask import (Flask, abort, flash, g, redirect, render_template,
+from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, url_for)
 
 from . import auth, publico, vales
@@ -16,6 +16,20 @@ from .db import ErrorInventario, get_db
 from .utiles import entero, respuesta_csv
 
 POR_PAGINA = 50
+INSTITUCION = "UES San Luis Río Colorado"
+LOGO_MAXIMO = 2 * 1024 * 1024
+NOMBRES_TIPO = {"alta": "Alta", "baja": "Baja", "vale": "Vale", "devolucion": "Devolución"}
+
+
+def tipo_imagen(datos):
+    """Reconoce PNG, JPG y WEBP por su firma (no se aceptan SVG por seguridad)."""
+    if datos.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if datos.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if datos[:4] == b"RIFF" and datos[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def clave_secreta(ruta_db):
@@ -72,7 +86,11 @@ def create_app(config=None):
     def utilidades_plantillas():
         return {"puede": auth.puede, "csrf_token": auth.token_csrf, "usuario": g.get("usuario"),
                 "lista_ubicaciones": lista_ubicaciones,
-                "solicitudes_en_espera": solicitudes_en_espera}
+                "solicitudes_en_espera": solicitudes_en_espera,
+                "institucion": base.leer_ajuste(get_db(), "institucion", INSTITUCION),
+                "version_logo": base.leer_ajuste(get_db(), "version_logo"),
+                "hay_logo": base.leer_ajuste(get_db(), "logo_tipo") is not None,
+                "nombres_tipo": NOMBRES_TIPO, "folio": vales.folio}
 
     def solicitudes_en_espera():
         return get_db().execute(
@@ -289,6 +307,9 @@ def create_app(config=None):
 
     def aplicar_movimiento(pid):
         db = get_db()
+        if request.form.get("tipo") not in ("alta", "baja"):
+            flash("Tipo de movimiento no válido.", "error")
+            return False
         try:
             nuevo = base.registrar_movimiento(
                 db, pid, request.form.get("tipo"), entero(request.form.get("cantidad")),
@@ -336,7 +357,7 @@ def create_app(config=None):
         hasta = request.args.get("hasta", "")
         q = request.args.get("q", "").strip()
         condiciones, params = [], []
-        if tipo in ("alta", "baja"):
+        if tipo in base.TIPOS:
             condiciones.append("m.tipo = ?")
             params.append(tipo)
         if desde:
@@ -349,6 +370,9 @@ def create_app(config=None):
             condiciones.append("(p.codigo LIKE ? OR p.nombre LIKE ? OR m.responsable LIKE ?"
                                " OR m.motivo LIKE ?)")
             params += [f"%{q}%"] * 4
+            if q.upper().startswith("V-") and entero(q[2:]) is not None:
+                condiciones[-1] = f"({condiciones[-1]} OR m.vale_id = ?)"
+                params.append(entero(q[2:]))
         where = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
         sql = f"""SELECT m.*, p.codigo, p.nombre, p.unidad FROM movimientos m
                   JOIN productos p ON p.id = m.producto_id {where}"""
@@ -385,11 +409,75 @@ def create_app(config=None):
         filas = get_db().execute(f"{sql} ORDER BY m.id", params).fetchall()
         return respuesta_csv(
             "movimientos",
-            ["fecha", "codigo", "nombre", "tipo", "cantidad", "existencia_resultante",
+            ["fecha", "codigo", "nombre", "tipo", "vale", "cantidad", "existencia_resultante",
              "motivo", "responsable"],
-            [(f["fecha"], f["codigo"], f["nombre"], f["tipo"], f["cantidad"],
+            [(f["fecha"], f["codigo"], f["nombre"], NOMBRES_TIPO[f["tipo"]],
+              vales.folio(f["vale_id"]) if f["vale_id"] else "", f["cantidad"],
               f["stock_resultante"], f["motivo"], f["responsable"]) for f in filas],
         )
+
+    @app.route("/movimientos/eliminar", methods=["POST"])
+    @requiere("admin")
+    def eliminar_movimientos():
+        db = get_db()
+        ids = [i for i in (entero(v) for v in request.form.getlist("ids")) if i is not None]
+        corregir = request.form.get("corregir") == "1"
+        try:
+            n = base.eliminar_movimientos(db, ids, corregir_existencia=corregir)
+            db.commit()
+        except ErrorInventario as e:
+            db.rollback()
+            flash(str(e) + " No se eliminó nada.", "error")
+        else:
+            if n:
+                flash(f"{n} registro{'' if n == 1 else 's'} eliminado{'' if n == 1 else 's'}"
+                      + (" y existencia corregida." if corregir else "."), "ok")
+            else:
+                flash("Marca al menos un registro para eliminarlo.", "error")
+        destino = request.form.get("volver", "")
+        if not destino.startswith("/") or destino.startswith("//"):
+            destino = url_for("movimientos")
+        return redirect(destino)
+
+    # ------------------------------------------------------------- configuración
+
+    @app.route("/configuracion", methods=["GET", "POST"])
+    @requiere("admin")
+    def configuracion():
+        db = get_db()
+        if request.method == "POST":
+            institucion = request.form.get("institucion", "").strip()[:120]
+            base.guardar_ajuste(db, "institucion", institucion or INSTITUCION)
+            archivo = request.files.get("logo")
+            if request.form.get("quitar_logo"):
+                db.execute("DELETE FROM ajustes WHERE clave IN ('logo', 'logo_tipo')")
+            elif archivo and archivo.filename:
+                datos = archivo.read(LOGO_MAXIMO + 1)
+                tipo = tipo_imagen(datos)
+                if len(datos) > LOGO_MAXIMO:
+                    flash("El logo debe pesar menos de 2 MB.", "error")
+                    return redirect(url_for("configuracion"))
+                if tipo is None:
+                    flash("El logo debe ser una imagen PNG, JPG o WEBP.", "error")
+                    return redirect(url_for("configuracion"))
+                base.guardar_ajuste(db, "logo", datos)
+                base.guardar_ajuste(db, "logo_tipo", tipo)
+            base.guardar_ajuste(db, "version_logo", secrets.token_hex(4))
+            db.commit()
+            flash("Configuración guardada.", "ok")
+            return redirect(url_for("configuracion"))
+        return render_template("configuracion.html")
+
+    @app.route("/logo")
+    def logo():
+        db = get_db()
+        datos = base.leer_ajuste(db, "logo")
+        if not datos:
+            abort(404)
+        respuesta = Response(datos, mimetype=base.leer_ajuste(db, "logo_tipo"))
+        respuesta.headers["X-Content-Type-Options"] = "nosniff"
+        respuesta.headers["Cache-Control"] = "public, max-age=86400"
+        return respuesta
 
     @app.route("/importar", methods=["GET", "POST"])
     @requiere("admin")

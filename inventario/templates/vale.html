@@ -11,9 +11,12 @@
 
 <article class="vale">
   <header>
-    <div>
-      <p class="nota">Vale de material para prácticas</p>
+    <div class="vale-titulo">
+      {% if hay_logo %}<img class="logo-vale" src="{{ url_for('logo', v=version_logo) }}" alt="">{% endif %}
+      <div>
+      <p class="nota">{{ institucion }} · Vale de material para prácticas</p>
       <h1>Folio {{ folio(vale.id) }}</h1>
+      </div>
     </div>
     <div class="derecha">
       <span class="etiqueta {{ 'pendiente' if vale.estado == 'abierto' else vale.estado }}">{{ estados[vale.estado] }}</span>
@@ -90,5 +93,11 @@
 </div>
 <p class="nota no-imprimir">Indica cuánto regresa el alumno de cada material. Cuando se devuelve todo, el vale se cierra solo.
   Para material consumible que no regresa, usa «Cerrar sin devolver el resto».</p>
+{% endif %}
+{% if puede('admin') %}
+<form method="post" action="{{ url_for('vales.eliminar', vale_id=vale.id) }}" class="zona-peligro no-imprimir"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <button class="peligro" onclick="return confirm('¿Eliminar el vale {{ folio(vale.id) }} por completo? Se borra del historial y el material que tenga fuera regresa a la existencia. No se puede deshacer.')">Eliminar vale</button>
+  <span class="nota">Solo para limpiar pruebas o vales capturados por error.</span>
+</form>
 {% endif %}
 {% endblock %}
