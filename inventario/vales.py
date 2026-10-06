@@ -11,7 +11,7 @@ from flask import (Blueprint, Response, abort, flash, g, jsonify, redirect, rend
 from markupsafe import Markup
 
 from . import db as base
-from . import evidencias
+from . import evidencias, red
 from .auth import requiere
 from .db import ErrorInventario, ahora, get_db
 from .utiles import entero, respuesta_csv
@@ -25,7 +25,7 @@ CAMPOS = ("alumno", "matricula", "materia", "maestro", "practica", "observacione
 OBLIGATORIOS = {
     "alumno": {"alumno": "nombre del alumno", "materia": "materia",
                "maestro": "nombre del maestro", "practica": "nombre de la práctica"},
-    "empleado": {"alumno": "nombre del empleado"},
+    "empleado": {"alumno": "nombre del empleado", "practica": "materia o trabajo a realizar"},
 }
 SOLICITANTES = ("alumno", "empleado")
 
@@ -33,7 +33,7 @@ SOLICITANTES = ("alumno", "empleado")
 def motivo_de(vale):
     """Texto que acompaña al vale en el historial de movimientos."""
     if vale["solicitante"] == "empleado":
-        return f"{vale['alumno']} · Empleado"
+        return f"{vale['alumno']} (empleado) · {vale['practica']}"
     return f"{vale['alumno']} · {vale['practica']}"
 
 bp = Blueprint("vales", __name__, url_prefix="/vales")
@@ -446,10 +446,14 @@ def contador_solicitudes():
 def url_publica():
     """Dirección de la página para alumnos, tal como la deben abrir desde su celular.
 
-    Si el encargado entra como «localhost», esa dirección no sirve en otro equipo, así que
-    se sustituye por la IP de esta computadora en la red local.
+    Si en Configuración hay una dirección pública (por ejemplo la del túnel de Cloudflare)
+    se usa esa. Si no, y el encargado entra como «localhost», esa dirección no sirve en
+    otro equipo, así que se sustituye por la IP de esta computadora en la red local.
     """
-    url = url_for("publico.solicitud", _external=True)
+    publica = base.leer_ajuste(get_db(), "direccion_publica")
+    if publica:
+        return publica + url_for("publico.solicitud")
+    url = red.direccion_actual() + url_for("publico.solicitud")
     host = request.host.split(":")[0]
     if host in ("localhost", "127.0.0.1", "::1"):
         try:

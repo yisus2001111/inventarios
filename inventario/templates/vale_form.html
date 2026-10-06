@@ -13,6 +13,7 @@
   <input type="hidden" name="solicitante" value="{{ solicitante }}">
   {% if empleado %}
   <label>Nombre del empleado *<input name="alumno" required autofocus value="{{ form.get('alumno', '') }}"></label>
+  <label>Materia o trabajo a realizar *<input name="practica" required list="practicas" value="{{ form.get('practica', '') }}"></label>
   <label>Hora estimada de regreso<input name="regreso_estimado" type="time" value="{{ form.get('regreso_estimado', '') }}"></label>
   <p class="nota completo">La hora de salida se registra al guardar; la de entrada, cuando se devuelva todo el material.</p>
   {% else %}

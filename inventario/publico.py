@@ -44,8 +44,8 @@ def formulario(solicitante):
     form = request.form
     if request.method == "POST":
         datos = {c: form.get(c, "").strip() for c in vales.CAMPOS}
-        if solicitante == "empleado":  # a los empleados solo se les pide nombre y firma
-            datos.update(matricula="", materia="", maestro="", practica="")
+        if solicitante == "empleado":  # a los empleados no se les piden datos académicos
+            datos.update(matricula="", materia="", maestro="")
         renglones = list(zip(form.getlist("material"), form.getlist("cantidad")))
         en_espera = sum(1 for s in mis_solicitudes(db) if s["estado"] == "solicitado")
         try:

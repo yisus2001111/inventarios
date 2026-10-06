@@ -4,6 +4,7 @@ import csv
 import io
 import logging
 import os
+import re
 import secrets
 from datetime import timedelta
 
@@ -11,7 +12,7 @@ from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, url_for)
 from markupsafe import escape
 
-from . import auth, evidencias, publico, vales
+from . import auth, evidencias, publico, red, vales
 from . import db as base
 from .auth import requiere
 from .db import ErrorInventario, get_db
@@ -106,6 +107,13 @@ def create_app(config=None):
     registro.setLevel(logging.ERROR)
     registro.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     app.logger.addHandler(registro)
+
+    @app.after_request
+    def encabezados_seguridad(respuesta):
+        respuesta.headers.setdefault("X-Content-Type-Options", "nosniff")
+        respuesta.headers.setdefault("X-Frame-Options", "DENY")
+        respuesta.headers.setdefault("Referrer-Policy", "same-origin")
+        return respuesta
 
     @app.errorhandler(500)
     def error_interno(e):
@@ -479,6 +487,12 @@ def create_app(config=None):
             for tipo in evidencias.TIPOS:
                 base.guardar_ajuste(db, f"pedir_{tipo}",
                                     "1" if request.form.get(f"pedir_{tipo}") else "0")
+            direccion = request.form.get("direccion_publica", "").strip().rstrip("/")
+            if direccion and not re.fullmatch(r"https?://[\w.-]+(:\d+)?", direccion):
+                flash("La dirección pública debe ser como https://inventario.ejemplo.com "
+                      "(sin rutas al final).", "error")
+                return redirect(url_for("configuracion"))
+            base.guardar_ajuste(db, "direccion_publica", direccion)
             institucion = request.form.get("institucion", "").strip()[:120]
             base.guardar_ajuste(db, "institucion", institucion or INSTITUCION)
             archivo = request.files.get("logo")
@@ -503,7 +517,10 @@ def create_app(config=None):
                            "WHERE a.tipo = 'credencial' AND v.estado IN ('cerrado', 'rechazado')"
                            ).fetchone()[0]
         return render_template("configuracion.html", pedir=evidencias.requeridos(db),
-                               fotos_cerradas=fotos)
+                               fotos_cerradas=fotos,
+                               direccion_publica=base.leer_ajuste(db, "direccion_publica", ""),
+                               direccion_actual=red.direccion_actual(),
+                               por_tunel=red.por_tunel())
 
     @app.route("/logo")
     def logo():

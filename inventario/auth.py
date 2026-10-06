@@ -3,11 +3,13 @@
 import functools
 import hmac
 import secrets
+from datetime import datetime, timedelta
 
 from flask import (Blueprint, abort, flash, g, redirect, render_template, request,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from . import red
 from .db import ahora, get_db
 
 # Cada rol incluye los permisos de los anteriores.
@@ -131,22 +133,73 @@ def configuracion_inicial():
     return render_template("configuracion_inicial.html", form=form)
 
 
+# Protección contra quien intente adivinar contraseñas: tras varios fallos seguidos desde
+# la misma IP (para un usuario, o en total) se bloquean los intentos un rato.
+FALLOS_POR_USUARIO = 5
+FALLOS_POR_IP = 20
+MINUTOS_BLOQUEO = 15
+
+
+def claves_intento(nombre):
+    ip = red.ip_cliente()
+    return [(f"{ip}|{nombre}", FALLOS_POR_USUARIO), (ip, FALLOS_POR_IP)]
+
+
+def bloqueado(db, nombre):
+    """Minutos que faltan si alguna de las claves de este intento está bloqueada."""
+    ahora_ = datetime.now()
+    for clave, _ in claves_intento(nombre):
+        fila = db.execute("SELECT bloqueado_hasta FROM intentos_login WHERE clave = ?",
+                          (clave,)).fetchone()
+        if fila and fila[0]:
+            hasta = datetime.strptime(fila[0], "%Y-%m-%d %H:%M:%S")
+            if hasta > ahora_:
+                return max(1, round((hasta - ahora_).total_seconds() / 60))
+    return 0
+
+
+def registrar_fallo(db, nombre):
+    for clave, limite in claves_intento(nombre):
+        db.execute("INSERT INTO intentos_login (clave, fallos) VALUES (?, 1) "
+                   "ON CONFLICT (clave) DO UPDATE SET fallos = fallos + 1", (clave,))
+        fallos = db.execute("SELECT fallos FROM intentos_login WHERE clave = ?",
+                            (clave,)).fetchone()[0]
+        if fallos >= limite:
+            hasta = (datetime.now() + timedelta(minutes=MINUTOS_BLOQUEO))
+            db.execute("UPDATE intentos_login SET fallos = 0, bloqueado_hasta = ? "
+                       "WHERE clave = ?", (hasta.strftime("%Y-%m-%d %H:%M:%S"), clave))
+    db.commit()
+
+
+def limpiar_fallos(db, nombre):
+    db.execute("DELETE FROM intentos_login WHERE clave = ?", (claves_intento(nombre)[0][0],))
+    db.commit()
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if g.usuario is not None:
         return redirect(url_for("index"))
     if request.method == "POST":
+        db = get_db()
         nombre = request.form.get("usuario", "").strip().lower()
-        fila = get_db().execute(
+        espera = bloqueado(db, nombre)
+        if espera:
+            flash(f"Demasiados intentos fallidos. Espera {espera} minuto"
+                  f"{'' if espera == 1 else 's'} e inténtalo de nuevo.", "error")
+            return render_template("login.html"), 429
+        fila = db.execute(
             "SELECT * FROM usuarios WHERE usuario = ? AND activo = 1", (nombre,)
         ).fetchone()
         if fila and check_password_hash(fila["contrasena"], request.form.get("contrasena", "")):
+            limpiar_fallos(db, nombre)
             iniciar_sesion(fila["id"])
             siguiente = request.args.get("siguiente", "")
             # Solo se permite volver a una ruta interna.
             if not siguiente.startswith("/") or siguiente.startswith("//"):
                 siguiente = url_for("index")
             return redirect(siguiente)
+        registrar_fallo(db, nombre)
         flash("Usuario o contraseña incorrectos.", "error")
     return render_template("login.html")
 

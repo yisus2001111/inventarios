@@ -39,7 +39,7 @@
       <td>{{ v.fecha[:16] }}</td>
       <td>{{ v.alumno }}{% if v.solicitante == 'empleado' %} <span class="etiqueta empleado">empleado</span>{% elif v.matricula %} <span class="nota">({{ v.matricula }})</span>{% endif %}</td>
       {% if v.solicitante == 'empleado' %}
-      <td colspan="3" class="nota">{% if v.entregado_en %}Salida {{ v.entregado_en[11:16] }}{% endif %}{% if v.estado == 'cerrado' and v.pendiente == 0 %} · Entrada {{ v.cerrado_en[11:16] }}{% elif v.regreso_estimado %} · regresa ~{{ v.regreso_estimado }}{% endif %}</td>
+      <td colspan="3"><span class="nota">Trabajo:</span> {{ v.practica }}<br><span class="nota">{% if v.entregado_en %}Salida {{ v.entregado_en[11:16] }}{% endif %}{% if v.estado == 'cerrado' and v.pendiente == 0 %} · Entrada {{ v.cerrado_en[11:16] }}{% elif v.regreso_estimado %} · regresa ~{{ v.regreso_estimado }}{% endif %}</span></td>
       {% else %}
       <td>{{ v.materia }}</td><td>{{ v.maestro }}</td><td>{{ v.practica }}</td>
       {% endif %}

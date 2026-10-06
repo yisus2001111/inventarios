@@ -27,6 +27,7 @@
     <div><dt>Fecha</dt><dd>{{ vale.fecha }}</dd></div>
     {% if vale.solicitante == 'empleado' %}
     <div><dt>Empleado</dt><dd>{{ vale.alumno }}</dd></div>
+    <div><dt>Materia o trabajo</dt><dd>{{ vale.practica }}</dd></div>
     <div><dt>Hora de salida</dt><dd>{{ vale.entregado_en or 'Aún no se entrega' }}{% if vale.entregado_por %} · entregó {{ vale.entregado_por }}{% endif %}</dd></div>
     <div><dt>Hora de entrada</dt><dd>{{ hora_entrada or ('Material no devuelto (cerrado)' if vale.estado == 'cerrado' else 'Pendiente') }}</dd></div>
     {% if vale.regreso_estimado %}<div><dt>Regreso estimado</dt><dd>{{ vale.regreso_estimado }}</dd></div>{% endif %}

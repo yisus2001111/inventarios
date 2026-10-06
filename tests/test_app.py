@@ -839,7 +839,8 @@ def test_eliminar_vale_borra_sus_imagenes(client, app):
 
 
 def solicitar_empleado(c, renglones, **extra):
-    data = {"alumno": "Ing. Pedro Ruiz", "regreso_estimado": "14:30", "firma": FIRMA}
+    data = {"alumno": "Ing. Pedro Ruiz", "practica": "Mantenimiento lab 2",
+            "regreso_estimado": "14:30", "firma": FIRMA}
     data.update(extra)
     data["material"] = [r[0] for r in renglones]
     data["cantidad"] = [str(r[1]) for r in renglones]
@@ -854,6 +855,8 @@ def test_empleado_solicita_solo_con_nombre_y_firma(client, app):
     assert 'id="firma-lienzo"' in html and 'capture="environment"' not in html
     assert "Falta la firma del empleado" in solicitar_empleado(emp, [("LAB-1", 1)], firma="").get_data(as_text=True)
     assert "Falta: nombre del empleado" in solicitar_empleado(emp, [("LAB-1", 1)], alumno="").get_data(as_text=True)
+    r = solicitar_empleado(emp, [("LAB-1", 1)], practica="")
+    assert "Falta: materia o trabajo a realizar" in r.get_data(as_text=True)
     html = solicitar_empleado(emp, [("LAB-1", 2)]).get_data(as_text=True)
     assert "V-00001" in html and "Ing. Pedro Ruiz" in html and "Regreso estimado" in html
     assert existencia(client, 1) == 5   # aún no se entrega
@@ -864,11 +867,12 @@ def test_vale_de_empleado_registra_salida_y_entrada(client, app):
     emp = app.test_client()
     token = solicitar_empleado(emp, [("LAB-1", 2)]).request.path.rsplit("/", 1)[1]
     html = client.get("/vales/1").get_data(as_text=True)
-    assert "Hora de salida" in html and "Aún no se entrega" in html and "<dt>Materia" not in html
+    assert "Hora de salida" in html and "Aún no se entrega" in html and "<dt>Materia</dt>" not in html
     client.post("/vales/1/entregar", data={})
     html = client.get("/vales/1").get_data(as_text=True)
     assert "Hora de entrada</dt><dd>Pendiente" in html
-    assert "Ing. Pedro Ruiz · Empleado" in client.get("/movimientos").get_data(as_text=True)
+    assert "Ing. Pedro Ruiz (empleado) · Mantenimiento lab 2" in client.get("/movimientos").get_data(as_text=True)
+    assert "Materia o trabajo</dt><dd>Mantenimiento lab 2" in html
     client.post("/vales/1/devolucion", data={"devolver_1": "2"})
     vale = __import__("sqlite3").connect(app.config["DATABASE"]).execute(
         "SELECT entregado_en, cerrado_en FROM vales WHERE id = 1").fetchone()
@@ -881,7 +885,7 @@ def test_vale_de_empleado_registra_salida_y_entrada(client, app):
 
 def test_empleado_cerrado_sin_devolver_no_tiene_hora_de_entrada(client, app):
     nuevo(client, codigo="LAB-1", stock=5)
-    vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto")
+    vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto", practica="Inventario")
     client.post("/vales/1/cerrar")
     assert "Material no devuelto" in client.get("/vales/1").get_data(as_text=True)
 
@@ -892,13 +896,18 @@ def test_vale_de_empleado_en_mostrador_y_filtros(client):
     assert "Nombre del empleado" in r and 'name="materia"' not in r
     r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto",
              materia="", maestro="", practica="", regreso_estimado="16:00")
+    assert "Falta: materia o trabajo a realizar" in r.get_data(as_text=True)
+    r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto",
+             materia="", maestro="", practica="Química I", regreso_estimado="16:00")
     assert "registrado" in r.get_data(as_text=True)
     vale(client, [("LAB-1", 1)])   # vale de alumno
     html = client.get("/vales/?solicitante=empleado").get_data(as_text=True)
     assert "Ana Soto" in html and "María López" not in html and "regresa ~16:00" in html
+    assert "Química I" in html
     csv = client.get("/vales/exportar.csv?estado=todos&solicitante=empleado").get_data(as_text=True)
     assert "hora_salida" in csv and ",empleado,Ana Soto," in csv and ",16:00," in csv
-    r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="X", regreso_estimado="mañana")
+    r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="X", practica="Y",
+             regreso_estimado="mañana")
     assert "hora estimada de regreso no es válida" in r.get_data(as_text=True)
 
 
@@ -920,3 +929,75 @@ def test_migra_vales_sin_columna_solicitante(tmp_path):
     c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "secreta1",
                                           "confirmacion": "secreta1"})
     assert "Ana" in c.get("/vales/?estado=todos&solicitante=alumno").get_data(as_text=True)
+
+
+
+# ----------------------------------------------- acceso desde internet (túnel)
+
+
+def test_bloquea_tras_varios_intentos_fallidos(client, app):
+    crear_usuario(client, "luis", "operador")
+    c = app.test_client()
+    for _ in range(5):
+        r = c.post("/login", data={"usuario": "luis", "contrasena": "mala"})
+        assert "incorrectos" in r.get_data(as_text=True)
+    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"})
+    assert r.status_code == 429 and "Demasiados intentos" in r.get_data(as_text=True)
+    assert c.get("/").status_code == 302
+    # otro usuario desde la misma IP aún puede entrar
+    assert entrar(app, "admin", "secreta1").get("/").status_code == 200
+
+
+def test_el_bloqueo_es_por_ip_real_detras_del_tunel(client, app):
+    crear_usuario(client, "luis", "operador")
+    atacante = {"CF-Connecting-IP": "203.0.113.9"}
+    c = app.test_client()
+    for _ in range(5):
+        c.post("/login", data={"usuario": "luis", "contrasena": "mala"}, headers=atacante)
+    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"}, headers=atacante)
+    assert r.status_code == 429
+    # el verdadero Luis, desde otra IP (también por el túnel), sí entra
+    luis = app.test_client()
+    r = luis.post("/login", data={"usuario": "luis", "contrasena": "clave123"},
+                  headers={"CF-Connecting-IP": "198.51.100.7"})
+    assert r.status_code == 302 and luis.get("/").status_code == 200
+
+
+def test_encabezado_de_cloudflare_solo_se_cree_desde_la_propia_computadora(client, app):
+    crear_usuario(client, "luis", "operador")
+    c = app.test_client()
+    for i in range(5):  # alguien en la red cambia el encabezado en cada intento
+        c.post("/login", data={"usuario": "luis", "contrasena": "mala"},
+               headers={"CF-Connecting-IP": f"10.0.0.{i}"},
+               environ_base={"REMOTE_ADDR": "192.168.1.50"})
+    r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"},
+               environ_base={"REMOTE_ADDR": "192.168.1.50"})
+    assert r.status_code == 429
+
+
+def test_direccion_publica_en_el_qr(client):
+    r = client.post("/configuracion", data={"institucion": "UES",
+                                            "direccion_publica": "https://inv.ejemplo.com/"},
+                    follow_redirects=True)
+    assert "Configuración guardada" in r.get_data(as_text=True)
+    assert "https://inv.ejemplo.com/solicitud/" in client.get("/vales/qr").get_data(as_text=True)
+    r = client.post("/configuracion", data={"institucion": "UES",
+                                            "direccion_publica": "javascript:alert(1)"},
+                    follow_redirects=True)
+    assert "debe ser como https://" in r.get_data(as_text=True)
+    client.post("/configuracion", data={"institucion": "UES", "direccion_publica": ""})
+    assert "inv.ejemplo.com" not in client.get("/vales/qr").get_data(as_text=True)
+
+
+def test_configuracion_detecta_el_tunel(client, app):
+    tunel = {"CF-Connecting-IP": "203.0.113.9", "Host": "abc.trycloudflare.com"}
+    c = app.test_client()
+    c.post("/login", data={"usuario": "admin", "contrasena": "secreta1"}, headers=tunel)
+    html = c.get("/configuracion", headers=tunel).get_data(as_text=True)
+    assert "Estás entrando por el túnel" in html and "https://abc.trycloudflare.com" in html
+
+
+def test_encabezados_de_seguridad(client):
+    r = client.get("/")
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert r.headers["X-Content-Type-Options"] == "nosniff"

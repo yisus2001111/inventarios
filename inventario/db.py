@@ -75,6 +75,12 @@ CREATE TABLE IF NOT EXISTS vale_archivos (
 
 CREATE INDEX IF NOT EXISTS idx_archivos_vale ON vale_archivos(vale_id);
 
+CREATE TABLE IF NOT EXISTS intentos_login (
+    clave           TEXT PRIMARY KEY,
+    fallos          INTEGER NOT NULL DEFAULT 0,
+    bloqueado_hasta TEXT
+);
+
 CREATE TABLE IF NOT EXISTS ajustes (
     clave  TEXT PRIMARY KEY,
     valor  BLOB

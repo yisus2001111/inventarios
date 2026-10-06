@@ -22,6 +22,7 @@
   <dt>Fecha</dt><dd>{{ vale.fecha[:16] }}</dd>
   {% if vale.solicitante == 'empleado' %}
   <dt>Empleado</dt><dd>{{ vale.alumno }}</dd>
+  <dt>Materia o trabajo</dt><dd>{{ vale.practica }}</dd>
   <dt>Salida</dt><dd>{{ vale.entregado_en[:16] if vale.entregado_en else 'Pendiente' }}</dd>
   <dt>Entrada</dt><dd>{{ hora_entrada[:16] if hora_entrada else 'Pendiente' }}</dd>
   {% if vale.regreso_estimado %}<dt>Regreso estimado</dt><dd>{{ vale.regreso_estimado }}</dd>{% endif %}
