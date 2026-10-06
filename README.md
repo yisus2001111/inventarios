@@ -96,6 +96,20 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 
 Para evitar abusos, un mismo celular puede tener máximo 3 solicitudes en espera.
 
+### Firma y foto de la credencial
+
+Al llenar el vale, el alumno **firma con el dedo** en la pantalla y **toma una foto de su
+credencial** (el celular abre la cámara; la foto se reduce automáticamente antes de
+enviarse). Al entregar, el encargado ve la credencial y la firma en el vale para comparar.
+La firma aparece también en el vale impreso.
+
+En el mostrador (**+ Nuevo vale**) el alumno firma en la pantalla de la computadora o
+tableta; la foto de la credencial ahí es opcional, porque el encargado la tiene a la vista.
+
+En **Configuración** se puede dejar de pedir la firma o la foto, y **borrar las fotos de
+credenciales** de vales ya cerrados o rechazados (son datos personales; las firmas se
+conservan). Solo el personal con sesión iniciada puede ver estas imágenes.
+
 ### Captura en el mostrador
 
 Para alumnos sin celular, el encargado puede seguir capturando el vale en

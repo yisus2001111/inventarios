@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% import "_evidencias.html" as evidencia %}
 {% block titulo %}Nuevo vale{% endblock %}
 {% block contenido %}
 <h1>Nuevo vale de material</h1>
 <p class="nota">La fecha y hora se registran automáticamente. Al guardar, el material se descuenta del inventario.</p>
-<form method="post" class="formulario vale-form" id="vale"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<form method="post" class="formulario vale-form" id="vale" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label>Nombre del alumno *<input name="alumno" required autofocus value="{{ form.get('alumno', '') }}"></label>
   <label>Matrícula<input name="matricula" value="{{ form.get('matricula', '') }}"></label>
   <label>Materia *<input name="materia" required list="materias" value="{{ form.get('materia', '') }}"></label>
@@ -28,6 +29,7 @@
   </fieldset>
 
   <label class="completo">Observaciones<input name="observaciones" value="{{ form.get('observaciones', '') }}"></label>
+  {{ evidencia.campos(pedir, form, credencial_obligatoria=False) }}
   <div class="acciones completo">
     <button>Registrar vale</button>
     <a href="{{ url_for('vales.lista') }}">Cancelar</a>

@@ -1,8 +1,16 @@
+import base64
 import io
 
 import pytest
 
 from inventario import create_app
+
+
+PNG_1PX = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000d49444154789c6360f8cf000000030101007a4d6f0f0000000049454e44ae426082")
+FIRMA = "data:image/png;base64," + base64.b64encode(PNG_1PX).decode()
+CREDENCIAL = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0fotojpeg").decode()
 
 
 @pytest.fixture
@@ -315,7 +323,8 @@ DATOS_VALE = {"alumno": "María López", "matricula": "A0123", "materia": "Quím
 
 
 def vale(client, renglones, **extra):
-    data = dict(DATOS_VALE, **extra)
+    data = dict(DATOS_VALE, firma=FIRMA)
+    data.update(extra)
     data["material"] = [r[0] for r in renglones]
     data["cantidad"] = [str(r[1]) for r in renglones]
     return client.post("/vales/nuevo", data=data, follow_redirects=True)
@@ -430,7 +439,8 @@ def test_permisos_vales(client, app):
 
 
 def solicitar(c, renglones, **extra):
-    data = dict(DATOS_VALE, **extra)
+    data = dict(DATOS_VALE, firma=FIRMA, credencial=CREDENCIAL)
+    data.update(extra)
     data["material"] = [r[0] for r in renglones]
     data["cantidad"] = [str(r[1]) for r in renglones]
     return c.post("/solicitud/", data=data, follow_redirects=True)
@@ -659,9 +669,6 @@ def test_solo_admin_elimina(client, app):
     assert op.get("/configuracion").status_code == 403
 
 
-PNG_1PX = bytes.fromhex(
-    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
-    "1f15c4890000000d49444154789c6360f8cf000000030101007a4d6f0f0000000049454e44ae426082")
 
 
 def test_configuracion_logo_e_institucion(client, app):
@@ -737,3 +744,92 @@ def test_error_inesperado_muestra_pagina_y_queda_en_log(tmp_path):
     assert "RuntimeError: algo &lt;salió&gt; mal" in html
     log = (tmp_path / "errores.log").read_text(encoding="utf-8")
     assert "RuntimeError: algo <salió> mal" in log and "Traceback" in log
+
+
+
+# ------------------------------------------------- firma y foto de credencial
+
+
+def test_solicitud_exige_firma_y_credencial(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    alumno = app.test_client()
+    html = alumno.get("/solicitud/").get_data(as_text=True)
+    assert 'id="firma-lienzo"' in html and 'capture="environment"' in html
+    assert "Falta la firma" in solicitar(alumno, [("LAB-1", 1)], firma="").get_data(as_text=True)
+    r = solicitar(alumno, [("LAB-1", 1)], credencial="")
+    assert "Falta la foto de la credencial" in r.get_data(as_text=True)
+    assert "No hay vales" in client.get("/vales/?estado=todos").get_data(as_text=True)
+    r = solicitar(alumno, [("LAB-1", 1)])
+    assert "Firma registrada" in r.get_data(as_text=True)
+
+
+def test_encargado_ve_firma_y_credencial_pero_el_publico_no(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    alumno = app.test_client()
+    solicitar(alumno, [("LAB-1", 1)])
+    html = client.get("/vales/1").get_data(as_text=True)
+    assert 'src="/vales/1/credencial"' in html and 'src="/vales/1/firma"' in html
+    r = client.get("/vales/1/firma")
+    assert r.status_code == 200 and r.mimetype == "image/png" and r.data == PNG_1PX
+    assert client.get("/vales/1/credencial").mimetype == "image/jpeg"
+    # sin sesión no se pueden ver las imágenes
+    assert alumno.get("/vales/1/credencial").status_code == 302
+    assert alumno.get("/vales/1/firma").status_code == 302
+
+
+def test_credencial_como_archivo_si_el_telefono_no_la_reduce(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    data = dict(DATOS_VALE, firma=FIRMA, material=["LAB-1"], cantidad=["1"],
+                credencial_archivo=(io.BytesIO(b"\xff\xd8\xff\xe0otrafoto"), "foto.jpg"))
+    r = app.test_client().post("/solicitud/", data=data, content_type="multipart/form-data",
+                               follow_redirects=True)
+    assert "Foto de credencial registrada" in r.get_data(as_text=True)
+
+
+def test_rechaza_imagenes_invalidas(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    alumno = app.test_client()
+    falsa = "data:image/png;base64," + base64.b64encode(b"<script>alert(1)</script>").decode()
+    assert "debe ser una imagen" in solicitar(alumno, [("LAB-1", 1)], firma=falsa).get_data(as_text=True)
+    assert "No se pudo leer" in solicitar(alumno, [("LAB-1", 1)], firma="data:image/png;base64,%%%").get_data(as_text=True)
+
+
+def test_mostrador_pide_firma_y_credencial_opcional(client):
+    nuevo(client, codigo="LAB-1", stock=5)
+    r = vale(client, [("LAB-1", 1)], firma="")
+    assert "Falta la firma del alumno" in r.get_data(as_text=True)
+    r = vale(client, [("LAB-1", 1)])          # sin credencial: se permite
+    assert "registrado" in r.get_data(as_text=True)
+    assert 'src="/vales/1/firma"' in r.get_data(as_text=True)
+
+
+def test_configuracion_desactiva_firma_y_credencial(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    client.post("/configuracion", data={"institucion": "UES San Luis Río Colorado"})
+    alumno = app.test_client()
+    assert 'id="firma-lienzo"' not in alumno.get("/solicitud/").get_data(as_text=True)
+    r = solicitar(alumno, [("LAB-1", 1)], firma="", credencial="")
+    assert "En espera" in r.get_data(as_text=True)
+
+
+def test_borrar_fotos_de_vales_cerrados(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    solicitar(app.test_client(), [("LAB-1", 1)])
+    solicitar(app.test_client(), [("LAB-1", 1)])
+    client.post("/vales/1/entregar", data={})
+    client.post("/vales/1/devolucion", data={"devolver_1": "1"})   # vale 1 queda cerrado
+    assert "(1)" in client.get("/configuracion").get_data(as_text=True)
+    r = client.post("/configuracion", data={"accion": "borrar_credenciales"}, follow_redirects=True)
+    assert "Se eliminaron 1 foto" in r.get_data(as_text=True)
+    assert client.get("/vales/1/credencial").status_code == 404
+    assert client.get("/vales/1/firma").status_code == 200           # la firma se conserva
+    assert client.get("/vales/2/credencial").status_code == 200      # vale abierto: intacta
+
+
+def test_eliminar_vale_borra_sus_imagenes(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    solicitar(app.test_client(), [("LAB-1", 1)])
+    client.post("/vales/1/eliminar")
+    import sqlite3
+    con = sqlite3.connect(app.config["DATABASE"])
+    assert con.execute("SELECT COUNT(*) FROM vale_archivos").fetchone()[0] == 0

@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS productos (
 
 {movimientos}
 
+CREATE TABLE IF NOT EXISTS vale_archivos (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    vale_id  INTEGER NOT NULL REFERENCES vales(id),
+    tipo     TEXT    NOT NULL CHECK (tipo IN ('firma', 'credencial')),
+    mime     TEXT    NOT NULL,
+    datos    BLOB    NOT NULL,
+    fecha    TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_archivos_vale ON vale_archivos(vale_id);
+
 CREATE TABLE IF NOT EXISTS ajustes (
     clave  TEXT PRIMARY KEY,
     valor  BLOB

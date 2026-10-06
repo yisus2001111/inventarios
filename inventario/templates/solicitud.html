@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_evidencias.html" as evidencia %}
 {% block titulo %}Solicitar material{% endblock %}
 {% block contenido %}
 <div class="movil">
@@ -17,7 +18,7 @@
 </details>
 {% endif %}
 
-<form method="post" id="solicitud" class="formulario"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<form method="post" id="solicitud" class="formulario" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label class="completo">Nombre completo *<input name="alumno" required maxlength="150" autocomplete="name" value="{{ form.get('alumno') or previo.get('alumno', '') }}"></label>
   <label class="completo">Matrícula<input name="matricula" maxlength="150" value="{{ form.get('matricula') or previo.get('matricula', '') }}"></label>
   <label class="completo">Materia *<input name="materia" required maxlength="150" list="materias" value="{{ form.get('materia', '') }}"></label>
@@ -33,6 +34,7 @@
   </fieldset>
 
   <label class="completo">Observaciones<input name="observaciones" maxlength="150" value="{{ form.get('observaciones', '') }}"></label>
+  {{ evidencia.campos(pedir, form) }}
   <div class="acciones completo"><button class="grande">Enviar solicitud</button></div>
 </form>
 </div>

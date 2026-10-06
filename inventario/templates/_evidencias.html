@@ -1,0 +1,118 @@
+{# Firma en pantalla y foto de la credencial para los formularios de vale.
+   El formulario que lo incluya debe usar enctype="multipart/form-data". #}
+{% macro campos(pedir, form, credencial_obligatoria=True) %}
+{% set firma_previa = form.get('firma', '') if form.get('firma', '').startswith('data:image/') else '' %}
+{% set credencial_previa = form.get('credencial', '') if form.get('credencial', '').startswith('data:image/') else '' %}
+{% if pedir.firma or pedir.credencial %}
+<fieldset class="completo evidencias">
+  <legend>Identificación del alumno</legend>
+
+  {% if pedir.firma %}
+  <div class="firma">
+    <div class="firma-encabezado">
+      <strong>Firma del alumno *</strong>
+      <button type="button" class="secundario" id="firma-borrar">Borrar firma</button>
+    </div>
+    <canvas id="firma-lienzo" aria-label="Espacio para firmar con el dedo o el ratón"></canvas>
+    <p class="nota">Firma con el dedo (o con el ratón) dentro del recuadro.</p>
+    <input type="hidden" name="firma" id="firma-dato" value="{{ firma_previa }}">
+  </div>
+  {% endif %}
+
+  {% if pedir.credencial %}
+  <div class="credencial">
+    <strong>Foto de la credencial{{ ' *' if credencial_obligatoria else ' (opcional)' }}</strong>
+    <label class="boton secundario tomar-foto">
+      Tomar foto de la credencial
+      <input type="file" name="credencial_archivo" id="credencial-archivo" accept="image/*" capture="environment" hidden>
+    </label>
+    <img id="credencial-vista" alt="Vista previa de la credencial" {{ '' if credencial_previa else 'hidden' }} src="{{ credencial_previa }}">
+    <input type="hidden" name="credencial" id="credencial-dato" value="{{ credencial_previa }}">
+    <p class="nota">Que se lean tu nombre y tu foto. Solo la ve el personal del laboratorio.</p>
+  </div>
+  {% endif %}
+</fieldset>
+
+<script>
+(() => {
+  const formulario = document.currentScript.closest('form');
+
+  // ---- firma ----
+  const lienzo = document.getElementById('firma-lienzo');
+  let trazos = 0;
+  if (lienzo) {
+    const dato = document.getElementById('firma-dato');
+    const ctx = lienzo.getContext('2d');
+    const ajustar = () => {
+      const r = window.devicePixelRatio || 1;
+      lienzo.width = lienzo.clientWidth * r;
+      lienzo.height = lienzo.clientHeight * r;
+      ctx.scale(r, r);
+      ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
+      if (dato.value) {  // firma previa (si el formulario regresó con un error)
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, lienzo.clientWidth, lienzo.clientHeight);
+        img.src = dato.value; trazos = 1;
+      }
+    };
+    ajustar();
+    let dibujando = false;
+    const punto = e => { const b = lienzo.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    lienzo.addEventListener('pointerdown', e => {
+      dibujando = true; lienzo.setPointerCapture(e.pointerId);
+      ctx.beginPath(); ctx.moveTo(...punto(e)); e.preventDefault();
+    });
+    lienzo.addEventListener('pointermove', e => {
+      if (!dibujando) return;
+      ctx.lineTo(...punto(e)); ctx.stroke(); trazos++; e.preventDefault();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => lienzo.addEventListener(t, () => {
+      if (dibujando && trazos) dato.value = lienzo.toDataURL('image/png');
+      dibujando = false;
+    }));
+    document.getElementById('firma-borrar').addEventListener('click', () => {
+      ctx.clearRect(0, 0, lienzo.width, lienzo.height); trazos = 0; dato.value = '';
+    });
+  }
+
+  // ---- foto de la credencial: se reduce a máx. 1280 px en el teléfono antes de enviarla ----
+  const archivo = document.getElementById('credencial-archivo');
+  if (archivo) {
+    const vista = document.getElementById('credencial-vista');
+    const dato = document.getElementById('credencial-dato');
+    archivo.addEventListener('change', () => {
+      const f = archivo.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        const escala = Math.min(1, 1280 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * escala); c.height = Math.round(img.height * escala);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        dato.value = c.toDataURL('image/jpeg', 0.8);
+        vista.src = dato.value; vista.hidden = false;
+        archivo.value = '';  // ya va reducida en el campo oculto
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => { vista.hidden = true; };  // se enviará el archivo original
+      img.src = url;
+    });
+  }
+
+  formulario.addEventListener('submit', e => {
+    {% if pedir.firma %}
+    if (!document.getElementById('firma-dato').value) {
+      e.preventDefault(); alert('Falta la firma del alumno.'); lienzo.scrollIntoView({block: 'center'}); return;
+    }
+    {% endif %}
+    {% if pedir.credencial and credencial_obligatoria %}
+    if (!document.getElementById('credencial-dato').value && !archivo.files.length) {
+      e.preventDefault(); alert('Falta la foto de la credencial.'); archivo.closest('label').scrollIntoView({block: 'center'});
+    }
+    {% endif %}
+  });
+})();
+</script>
+{% endif %}
+{% endmacro %}

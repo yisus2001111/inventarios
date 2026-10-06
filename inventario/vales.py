@@ -5,11 +5,12 @@ import socket
 
 import qrcode
 import qrcode.image.svg
-from flask import (Blueprint, abort, flash, g, jsonify, redirect, render_template, request,
-                   url_for)
+from flask import (Blueprint, Response, abort, flash, g, jsonify, redirect, render_template,
+                   request, url_for)
 from markupsafe import Markup
 
 from . import db as base
+from . import evidencias
 from .auth import requiere
 from .db import ErrorInventario, ahora, get_db
 from .utiles import entero, respuesta_csv
@@ -109,7 +110,7 @@ def descontar(db, vale_id, usuario):
                                   usuario, vale_id=vale_id)
 
 
-def crear_vale(db, datos, renglones, usuario):
+def crear_vale(db, datos, renglones, usuario, archivos=None):
     """Vale capturado en el mostrador: se entrega y descuenta en el momento.
 
     Todo ocurre en una sola transacción: si algún renglón no es válido no se registra nada.
@@ -118,11 +119,12 @@ def crear_vale(db, datos, renglones, usuario):
     fecha = ahora()
     vale_id = insertar(db, datos, renglones, fecha=fecha, usuario=usuario, estado="abierto",
                        origen="mostrador", entregado_en=fecha, entregado_por=usuario)
+    evidencias.guardar(db, vale_id, archivos or {})
     descontar(db, vale_id, usuario)
     return vale_id
 
 
-def crear_solicitud(db, datos, renglones):
+def crear_solicitud(db, datos, renglones, archivos=None):
     """Vale llenado por el alumno: queda en espera y no toca el inventario.
 
     Devuelve (vale_id, token). El token es la clave secreta con la que el alumno
@@ -132,6 +134,7 @@ def crear_solicitud(db, datos, renglones):
     token = secrets.token_urlsafe(16)
     vale_id = insertar(db, datos, renglones, fecha=ahora(), estado="solicitado",
                        origen="alumno", token=token)
+    evidencias.guardar(db, vale_id, archivos or {})
     return vale_id, token
 
 
@@ -211,6 +214,7 @@ def eliminar_vale(db, vale_id):
             db.execute("UPDATE productos SET stock = stock + ? WHERE id = ?",
                        (item["cantidad"] - item["devuelto"], item["producto_id"]))
     db.execute("DELETE FROM movimientos WHERE vale_id = ?", (vale_id,))
+    db.execute("DELETE FROM vale_archivos WHERE vale_id = ?", (vale_id,))
     db.execute("DELETE FROM vale_items WHERE vale_id = ?", (vale_id,))
     db.execute("DELETE FROM vales WHERE id = ?", (vale_id,))
 
@@ -307,7 +311,9 @@ def nuevo():
     if request.method == "POST":
         datos = {c: form.get(c, "").strip() for c in CAMPOS}
         try:
-            vale_id = crear_vale(db, datos, renglones, g.usuario["usuario"])
+            # En el mostrador el encargado ve la credencial, así que la foto es opcional.
+            archivos = evidencias.recoger(db, form, request.files, exigir=("firma",))
+            vale_id = crear_vale(db, datos, renglones, g.usuario["usuario"], archivos)
             db.commit()
         except ErrorInventario as e:
             db.rollback()
@@ -316,7 +322,8 @@ def nuevo():
             flash(f"Vale {folio(vale_id)} registrado. El material se descontó del inventario.", "ok")
             return redirect(url_for("vales.detalle", vale_id=vale_id))
     renglones = [r for r in renglones if r[0].strip()] or [("", "1")]
-    return render_template("vale_form.html", form=form, renglones=renglones, **sugerencias(db))
+    return render_template("vale_form.html", form=form, renglones=renglones,
+                           pedir=evidencias.requeridos(db), **sugerencias(db))
 
 
 @bp.route("/<int:vale_id>")
@@ -327,7 +334,21 @@ def detalle(vale_id):
            JOIN productos p ON p.id = i.producto_id WHERE i.vale_id = ? ORDER BY i.id""",
         (vale_id,),
     ).fetchall()
-    return render_template("vale.html", vale=vale, items=items, folio=folio, estados=ESTADOS)
+    return render_template("vale.html", vale=vale, items=items, folio=folio, estados=ESTADOS,
+                           evidencias=evidencias.de_vale(get_db(), vale_id))
+
+
+@bp.route("/<int:vale_id>/<any(firma, credencial):tipo>")
+def archivo(vale_id, tipo):
+    """Imagen de la firma o credencial; solo para el personal con sesión iniciada."""
+    fila = get_db().execute("SELECT mime, datos FROM vale_archivos WHERE vale_id = ? "
+                            "AND tipo = ? ORDER BY id DESC", (vale_id, tipo)).fetchone()
+    if fila is None:
+        abort(404)
+    respuesta = Response(fila["datos"], mimetype=fila["mime"])
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    respuesta.headers["Cache-Control"] = "private, max-age=3600"
+    return respuesta
 
 
 @bp.route("/<int:vale_id>/entregar", methods=["POST"])

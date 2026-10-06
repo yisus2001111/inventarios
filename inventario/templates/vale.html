@@ -35,6 +35,25 @@
     {% if vale.estado == 'rechazado' %}<div><dt>Rechazado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}{% if vale.motivo_rechazo %}: {{ vale.motivo_rechazo }}{% endif %}</dd></div>{% endif %}
   </dl>
   {% if vale.observaciones %}<p><strong>Observaciones:</strong> {{ vale.observaciones }}</p>{% endif %}
+  {% if evidencias %}
+  <div class="evidencias-vale">
+    {% if 'credencial' in evidencias %}
+    <figure class="no-imprimir">
+      <a href="{{ url_for('vales.archivo', vale_id=vale.id, tipo='credencial') }}" target="_blank">
+        <img src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='credencial') }}" alt="Credencial del alumno"></a>
+      <figcaption>Credencial (clic para ampliar). Compárala con el alumno al entregar.</figcaption>
+    </figure>
+    {% endif %}
+    {% if 'firma' in evidencias %}
+    <figure class="firma-vale no-imprimir">
+      <img src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='firma') }}" alt="Firma del alumno">
+      <figcaption>Firma del alumno · {{ evidencias.firma }}</figcaption>
+    </figure>
+    {% endif %}
+  </div>
+  {% elif vale.estado == 'solicitado' %}
+  <p class="nota">Esta solicitud no trae firma ni credencial.</p>
+  {% endif %}
 
   {% set abierto = vale.estado == 'abierto' and puede('operador') %}
   <form method="post" action="{{ url_for('vales.devolucion', vale_id=vale.id) }}" id="devolucion"><input type="hidden" name="csrf" value="{{ csrf_token() }}"></form>
@@ -67,7 +86,8 @@
   </table>
   </div>
   <div class="firmas solo-imprimir">
-    <div>Firma del alumno</div><div>Entregó</div>
+    <div>{% if 'firma' in evidencias %}<img class="firma-impresa" src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='firma') }}" alt="">{% endif %}<span class="linea">Firma del alumno</span></div>
+    <div><span class="linea">Entregó: {{ vale.entregado_por or '' }}</span></div>
   </div>
 </article>
 

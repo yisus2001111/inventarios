@@ -17,6 +17,19 @@
     <input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
   <p class="nota completo">Usa el logo oficial de la UES. Se recomienda un PNG con fondo transparente.
     Se muestra junto a tu nombre de usuario, en la página de los alumnos, en el cartel del QR y en los vales impresos.</p>
+  <fieldset class="completo evidencias">
+    <legend>Identificación en los vales</legend>
+    <label class="casilla"><input type="checkbox" name="pedir_firma" value="1" {{ 'checked' if pedir.firma }}> Pedir la firma del alumno (en el celular y en el mostrador)</label>
+    <label class="casilla"><input type="checkbox" name="pedir_credencial" value="1" {{ 'checked' if pedir.credencial }}> Pedir foto de la credencial (obligatoria en el celular, opcional en el mostrador)</label>
+  </fieldset>
   <div class="acciones completo"><button>Guardar</button></div>
+</form>
+
+<h2>Fotos de credenciales</h2>
+<p>Las fotos de credenciales son datos personales. Cuando un vale se cierra ya no son necesarias;
+  puedes borrarlas (las firmas se conservan como constancia).</p>
+<form method="post" class="acciones"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="accion" value="borrar_credenciales">
+  <button class="peligro" {{ 'disabled' if not fotos_cerradas }} onclick="return confirm('¿Borrar {{ fotos_cerradas }} foto(s) de credencial de vales cerrados o rechazados?')">Borrar fotos de vales cerrados ({{ fotos_cerradas }})</button>
 </form>
 {% endblock %}

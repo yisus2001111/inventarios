@@ -25,6 +25,7 @@
   <dt>Maestro</dt><dd>{{ vale.maestro }}</dd>
   <dt>Práctica</dt><dd>{{ vale.practica }}</dd>
 </dl>
+{% if evidencias %}<p class="nota">{% if 'firma' in evidencias %}✔ Firma registrada {% endif %}{% if 'credencial' in evidencias %}✔ Foto de credencial registrada{% endif %}</p>{% endif %}
 <ul class="elegidos">
 {% for i in items %}
   <li><div class="info"><strong>{{ i.cantidad }} × {{ i.nombre }}</strong><small>No. inv. {{ i.codigo }}{% if vale.estado == 'abierto' and i.devuelto %} · devuelto {{ i.devuelto }}{% endif %}</small></div></li>

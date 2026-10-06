@@ -3,7 +3,7 @@
 from flask import (Blueprint, abort, flash, redirect, render_template, request, session,
                    url_for)
 
-from . import vales
+from . import evidencias, vales
 from .db import ErrorInventario, get_db
 
 bp = Blueprint("publico", __name__, url_prefix="/solicitud")
@@ -42,7 +42,8 @@ def solicitud():
                 raise ErrorInventario(
                     f"Ya tienes {en_espera} solicitudes en espera. Pasa al mostrador a que "
                     "te las entreguen antes de pedir más.")
-            vale_id, token = vales.crear_solicitud(db, datos, renglones)
+            archivos = evidencias.recoger(db, form, request.files)
+            vale_id, token = vales.crear_solicitud(db, datos, renglones, archivos)
             db.commit()
         except ErrorInventario as e:
             db.rollback()
@@ -65,6 +66,7 @@ def solicitud():
     return render_template(
         "solicitud.html", form=form, previo=previo, materiales=materiales,
         seleccion=seleccion, mis=mis_solicitudes(db), folio=vales.folio,
+        pedir=evidencias.requeridos(db),
         **{k: v for k, v in vales.sugerencias(db).items() if k != "materiales"},
     )
 
@@ -80,4 +82,5 @@ def estado(token):
            JOIN productos p ON p.id = i.producto_id WHERE i.vale_id = ? ORDER BY i.id""",
         (vale["id"],),
     ).fetchall()
-    return render_template("solicitud_estado.html", vale=vale, items=items, folio=vales.folio)
+    return render_template("solicitud_estado.html", vale=vale, items=items, folio=vales.folio,
+                           evidencias=evidencias.de_vale(db, vale["id"]))

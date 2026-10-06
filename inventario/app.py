@@ -11,7 +11,7 @@ from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, url_for)
 from markupsafe import escape
 
-from . import auth, publico, vales
+from . import auth, evidencias, publico, vales
 from . import db as base
 from .auth import requiere
 from .db import ErrorInventario, get_db
@@ -21,17 +21,6 @@ POR_PAGINA = 50
 INSTITUCION = "UES San Luis Río Colorado"
 LOGO_MAXIMO = 2 * 1024 * 1024
 NOMBRES_TIPO = {"alta": "Alta", "baja": "Baja", "vale": "Vale", "devolucion": "Devolución"}
-
-
-def tipo_imagen(datos):
-    """Reconoce PNG, JPG y WEBP por su firma (no se aceptan SVG por seguridad)."""
-    if datos.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if datos.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if datos[:4] == b"RIFF" and datos[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 def clave_secreta(ruta_db):
@@ -67,6 +56,7 @@ def create_app(config=None):
             "INVENTARIO_DB", os.path.join(app.root_path, "..", "inventario.db")
         ),
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+        MAX_CONTENT_LENGTH=12 * 1024 * 1024,  # fotos de credencial y logo
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
     )
@@ -133,6 +123,12 @@ def create_app(config=None):
 <code>inventario.db</code>.</p>
 <p style="color:#626a73;font-size:.9em">Detalle: {escape(detalle)}</p>
 <p><a href="/">Volver al inicio</a></p>""", 500)
+
+    @app.errorhandler(413)
+    def demasiado_grande(_e):
+        return render_template("error.html", titulo="Archivo demasiado grande",
+                               mensaje="La foto o el archivo enviado pesa demasiado. "
+                                       "Intenta con una imagen más pequeña."), 413
 
     @app.errorhandler(403)
     def prohibido(_e):
@@ -473,7 +469,16 @@ def create_app(config=None):
     @requiere("admin")
     def configuracion():
         db = get_db()
+        if request.method == "POST" and request.form.get("accion") == "borrar_credenciales":
+            n = evidencias.borrar_credenciales_de_cerrados(db)
+            db.commit()
+            flash(f"Se eliminaron {n} foto{'' if n == 1 else 's'} de credencial de vales "
+                  "cerrados o rechazados.", "ok")
+            return redirect(url_for("configuracion"))
         if request.method == "POST":
+            for tipo in evidencias.TIPOS:
+                base.guardar_ajuste(db, f"pedir_{tipo}",
+                                    "1" if request.form.get(f"pedir_{tipo}") else "0")
             institucion = request.form.get("institucion", "").strip()[:120]
             base.guardar_ajuste(db, "institucion", institucion or INSTITUCION)
             archivo = request.files.get("logo")
@@ -481,7 +486,7 @@ def create_app(config=None):
                 db.execute("DELETE FROM ajustes WHERE clave IN ('logo', 'logo_tipo')")
             elif archivo and archivo.filename:
                 datos = archivo.read(LOGO_MAXIMO + 1)
-                tipo = tipo_imagen(datos)
+                tipo = evidencias.tipo_imagen(datos)
                 if len(datos) > LOGO_MAXIMO:
                     flash("El logo debe pesar menos de 2 MB.", "error")
                     return redirect(url_for("configuracion"))
@@ -494,7 +499,11 @@ def create_app(config=None):
             db.commit()
             flash("Configuración guardada.", "ok")
             return redirect(url_for("configuracion"))
-        return render_template("configuracion.html")
+        fotos = db.execute("SELECT COUNT(*) FROM vale_archivos a JOIN vales v ON v.id = a.vale_id "
+                           "WHERE a.tipo = 'credencial' AND v.estado IN ('cerrado', 'rechazado')"
+                           ).fetchone()[0]
+        return render_template("configuracion.html", pedir=evidencias.requeridos(db),
+                               fotos_cerradas=fotos)
 
     @app.route("/logo")
     def logo():
