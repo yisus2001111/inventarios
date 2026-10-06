@@ -3,15 +3,17 @@
 {% block titulo %}Solicitar material{% endblock %}
 {% block contenido %}
 <div class="movil">
-<h1>Solicitud de material</h1>
+<h1>Solicitud de material{{ ' · Empleados' if empleado }}</h1>
 <p class="nota">Llena tu vale y preséntate en el mostrador con tu folio para recibir el material.</p>
+<p class="cambiar-tipo">{% if empleado %}¿Eres alumno? <a href="{{ url_for('publico.solicitud') }}">Solicita aquí</a>
+  {% else %}¿Eres empleado? <a href="{{ url_for('publico.solicitud_empleado') }}">Solicita aquí</a>{% endif %}</p>
 
 {% if mis %}
 <details class="mis" {{ 'open' if mis|selectattr('estado', 'equalto', 'solicitado')|list }}>
   <summary>Mis solicitudes recientes ({{ mis|length }})</summary>
   <ul>
   {% for s in mis %}
-    <li><a href="{{ url_for('publico.estado', token=s.token) }}">{{ folio(s.id) }} · {{ s.practica }}</a>
+    <li><a href="{{ url_for('publico.estado', token=s.token) }}">{{ folio(s.id) }} · {{ 'Empleado' if s.solicitante == 'empleado' else s.practica }}</a>
       <span class="etiqueta {{ s.estado }}">{{ {'solicitado':'en espera','abierto':'entregado','cerrado':'cerrado','rechazado':'rechazado'}[s.estado] }}</span></li>
   {% endfor %}
   </ul>
@@ -20,10 +22,15 @@
 
 <form method="post" id="solicitud" class="formulario" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <label class="completo">Nombre completo *<input name="alumno" required maxlength="150" autocomplete="name" value="{{ form.get('alumno') or previo.get('alumno', '') }}"></label>
+  {% if empleado %}
+  <label class="completo">Hora estimada de regreso del material<input name="regreso_estimado" type="time" value="{{ form.get('regreso_estimado', '') }}"></label>
+  <p class="nota completo">La hora de salida y la de entrada se registran solas cuando te entregan y cuando devuelves el material.</p>
+  {% else %}
   <label class="completo">Matrícula<input name="matricula" maxlength="150" value="{{ form.get('matricula') or previo.get('matricula', '') }}"></label>
   <label class="completo">Materia *<input name="materia" required maxlength="150" list="materias" value="{{ form.get('materia', '') }}"></label>
   <label class="completo">Nombre del maestro *<input name="maestro" required maxlength="150" list="maestros" value="{{ form.get('maestro', '') }}"></label>
   <label class="completo">Nombre de la práctica *<input name="practica" required maxlength="150" list="practicas" value="{{ form.get('practica', '') }}"></label>
+  {% endif %}
 
   <fieldset class="completo materiales">
     <legend>Material</legend>
@@ -34,7 +41,7 @@
   </fieldset>
 
   <label class="completo">Observaciones<input name="observaciones" maxlength="150" value="{{ form.get('observaciones', '') }}"></label>
-  {{ evidencia.campos(pedir, form) }}
+  {{ evidencia.campos(pedir, form, quien='empleado' if empleado else 'alumno') }}
   <div class="acciones completo"><button class="grande">Enviar solicitud</button></div>
 </form>
 </div>

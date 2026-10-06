@@ -110,6 +110,15 @@ En **Configuración** se puede dejar de pedir la firma o la foto, y **borrar las
 credenciales** de vales ya cerrados o rechazados (son datos personales; las firmas se
 conservan). Solo el personal con sesión iniciada puede ver estas imágenes.
 
+### Vales de empleados
+
+Los empleados piden material desde la misma página (enlace «¿Eres empleado?», o
+directamente en `/solicitud/empleado`) con solo su **nombre**, el **material**, una
+**hora estimada de regreso** (opcional) y su **firma**. La **hora de salida** se registra
+sola al entregar el material y la **hora de entrada** cuando se devuelve completo. En el
+mostrador se capturan con **+ Vale de empleado**. La lista de vales se puede filtrar por
+alumnos o empleados, y el CSV incluye las horas de salida y entrada.
+
 ### Captura en el mostrador
 
 Para alumnos sin celular, el encargado puede seguir capturando el vale en

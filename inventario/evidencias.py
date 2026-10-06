@@ -21,9 +21,15 @@ def tipo_imagen(datos):
     return None
 
 
-def requeridos(db):
-    """Qué evidencias pide la universidad (se cambia en Configuración)."""
-    return {t: leer_ajuste(db, f"pedir_{t}", "1") == "1" for t in TIPOS}
+def requeridos(db, solicitante="alumno"):
+    """Qué evidencias pide la universidad (se cambia en Configuración).
+
+    A los empleados solo se les pide la firma.
+    """
+    pedidas = {t: leer_ajuste(db, f"pedir_{t}", "1") == "1" for t in TIPOS}
+    if solicitante == "empleado":
+        pedidas["credencial"] = False
+    return pedidas
 
 
 def leer(form, files, tipo):
@@ -51,21 +57,23 @@ def leer(form, files, tipo):
     return mime, datos
 
 
-def recoger(db, form, files, exigir=TIPOS):
+def recoger(db, form, files, exigir=TIPOS, solicitante="alumno"):
     """Lee las evidencias del formulario y revisa que estén las obligatorias.
 
     `exigir` limita cuáles se pueden exigir (en el mostrador la credencial es opcional
     porque el encargado la tiene a la vista).
     """
-    pedidas = requeridos(db)
+    pedidas = requeridos(db, solicitante)
     archivos = {}
     for tipo in TIPOS:
+        if solicitante == "empleado" and tipo == "credencial":
+            continue
         imagen = leer(form, files, tipo)
         if imagen:
             archivos[tipo] = imagen
         elif pedidas[tipo] and tipo in exigir:
             raise ErrorInventario(
-                "Falta la firma del alumno." if tipo == "firma"
+                f"Falta la firma del {solicitante}." if tipo == "firma"
                 else "Falta la foto de la credencial del alumno.")
     return archivos
 

@@ -28,7 +28,9 @@ VALES_DDL = """CREATE TABLE IF NOT EXISTS {nombre} (
     entregado_por  TEXT,
     cerrado_en     TEXT,
     cerrado_por    TEXT,
-    motivo_rechazo TEXT    NOT NULL DEFAULT ''
+    motivo_rechazo TEXT    NOT NULL DEFAULT '',
+    solicitante    TEXT    NOT NULL DEFAULT 'alumno' CHECK (solicitante IN ('alumno', 'empleado')),
+    regreso_estimado TEXT  NOT NULL DEFAULT ''
 );"""
 
 # Tipos de movimiento: alta y baja (manuales), vale (préstamo) y devolucion (de un vale).
@@ -142,6 +144,7 @@ def cerrar_db(_exc=None):
 def init_db():
     db = get_db()
     migrar_vales(db)
+    migrar_solicitante(db)
     migrar_movimientos(db)
     db.executescript(ESQUEMA)
 
@@ -202,6 +205,17 @@ def crear_producto(db, codigo, nombre, categoria="", ubicacion="", unidad="pza",
             (producto_id, stock_inicial, stock_inicial, motivo, responsable.strip(), fecha),
         )
     return producto_id
+
+
+def migrar_solicitante(db):
+    """Agrega a los vales existentes las columnas para préstamos a empleados."""
+    columnas = {f[1] for f in db.execute("PRAGMA table_info(vales)")}
+    if not columnas or "solicitante" in columnas:
+        return
+    db.execute("ALTER TABLE vales ADD COLUMN solicitante TEXT NOT NULL DEFAULT 'alumno' "
+               "CHECK (solicitante IN ('alumno', 'empleado'))")
+    db.execute("ALTER TABLE vales ADD COLUMN regreso_estimado TEXT NOT NULL DEFAULT ''")
+    db.commit()
 
 
 def migrar_movimientos(db):

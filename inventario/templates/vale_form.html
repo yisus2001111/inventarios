@@ -2,14 +2,26 @@
 {% import "_evidencias.html" as evidencia %}
 {% block titulo %}Nuevo vale{% endblock %}
 {% block contenido %}
-<h1>Nuevo vale de material</h1>
+{% set empleado = solicitante == 'empleado' %}
+<h1>Nuevo vale de material · {{ 'Empleado' if empleado else 'Alumno' }}</h1>
+<nav class="pestanas">
+  <a href="{{ url_for('vales.nuevo') }}" class="{{ '' if empleado else 'activa' }}">Alumno</a>
+  <a href="{{ url_for('vales.nuevo', solicitante='empleado') }}" class="{{ 'activa' if empleado }}">Empleado</a>
+</nav>
 <p class="nota">La fecha y hora se registran automáticamente. Al guardar, el material se descuenta del inventario.</p>
 <form method="post" class="formulario vale-form" id="vale" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="solicitante" value="{{ solicitante }}">
+  {% if empleado %}
+  <label>Nombre del empleado *<input name="alumno" required autofocus value="{{ form.get('alumno', '') }}"></label>
+  <label>Hora estimada de regreso<input name="regreso_estimado" type="time" value="{{ form.get('regreso_estimado', '') }}"></label>
+  <p class="nota completo">La hora de salida se registra al guardar; la de entrada, cuando se devuelva todo el material.</p>
+  {% else %}
   <label>Nombre del alumno *<input name="alumno" required autofocus value="{{ form.get('alumno', '') }}"></label>
   <label>Matrícula<input name="matricula" value="{{ form.get('matricula', '') }}"></label>
   <label>Materia *<input name="materia" required list="materias" value="{{ form.get('materia', '') }}"></label>
   <label>Nombre del maestro *<input name="maestro" required list="maestros" value="{{ form.get('maestro', '') }}"></label>
   <label class="completo">Nombre de la práctica *<input name="practica" required list="practicas" value="{{ form.get('practica', '') }}"></label>
+  {% endif %}
 
   <fieldset class="completo materiales">
     <legend>Material</legend>
@@ -29,7 +41,7 @@
   </fieldset>
 
   <label class="completo">Observaciones<input name="observaciones" value="{{ form.get('observaciones', '') }}"></label>
-  {{ evidencia.campos(pedir, form, credencial_obligatoria=False) }}
+  {{ evidencia.campos(pedir, form, credencial_obligatoria=False, quien=solicitante) }}
   <div class="acciones completo">
     <button>Registrar vale</button>
     <a href="{{ url_for('vales.lista') }}">Cancelar</a>

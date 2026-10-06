@@ -1,4 +1,4 @@
-"""Páginas para alumnos (sin cuenta): llenar la solicitud de material y ver su estado."""
+"""Páginas públicas (sin cuenta) para que alumnos y empleados pidan material y vean su estado."""
 
 from flask import (Blueprint, abort, flash, redirect, render_template, request, session,
                    url_for)
@@ -22,7 +22,7 @@ def mis_solicitudes(db):
     if not tokens:
         return []
     filas = db.execute(
-        f"SELECT id, token, estado, practica, fecha FROM vales "
+        f"SELECT id, token, estado, practica, solicitante, fecha FROM vales "
         f"WHERE token IN ({', '.join('?' * len(tokens))}) ORDER BY id DESC",
         tokens,
     ).fetchall()
@@ -31,10 +31,21 @@ def mis_solicitudes(db):
 
 @bp.route("/", methods=["GET", "POST"])
 def solicitud():
+    return formulario("alumno")
+
+
+@bp.route("/empleado", methods=["GET", "POST"])
+def solicitud_empleado():
+    return formulario("empleado")
+
+
+def formulario(solicitante):
     db = get_db()
     form = request.form
     if request.method == "POST":
         datos = {c: form.get(c, "").strip() for c in vales.CAMPOS}
+        if solicitante == "empleado":  # a los empleados solo se les pide nombre y firma
+            datos.update(matricula="", materia="", maestro="", practica="")
         renglones = list(zip(form.getlist("material"), form.getlist("cantidad")))
         en_espera = sum(1 for s in mis_solicitudes(db) if s["estado"] == "solicitado")
         try:
@@ -42,8 +53,9 @@ def solicitud():
                 raise ErrorInventario(
                     f"Ya tienes {en_espera} solicitudes en espera. Pasa al mostrador a que "
                     "te las entreguen antes de pedir más.")
-            archivos = evidencias.recoger(db, form, request.files)
-            vale_id, token = vales.crear_solicitud(db, datos, renglones, archivos)
+            archivos = evidencias.recoger(db, form, request.files, solicitante=solicitante)
+            vale_id, token = vales.crear_solicitud(db, datos, renglones, archivos,
+                                                   solicitante=solicitante)
             db.commit()
         except ErrorInventario as e:
             db.rollback()
@@ -51,8 +63,8 @@ def solicitud():
         else:
             session["mis_vales"] = ([token] + mis_tokens())[:RECORDAR]
             session.permanent = True
-            # Recordar los datos del alumno para su próxima solicitud.
-            session["alumno"] = {c: datos[c] for c in ("alumno", "matricula")}
+            # Recordar los datos de la persona para su próxima solicitud.
+            session[solicitante] = {c: datos[c] for c in ("alumno", "matricula")}
             return redirect(url_for("publico.estado", token=token))
 
     materiales = [
@@ -62,11 +74,11 @@ def solicitud():
     ]
     seleccion = [{"c": vales.codigo_de(m), "q": q}
                  for m, q in zip(form.getlist("material"), form.getlist("cantidad")) if m.strip()]
-    previo = session.get("alumno", {})
+    previo = session.get(solicitante, {})
     return render_template(
         "solicitud.html", form=form, previo=previo, materiales=materiales,
         seleccion=seleccion, mis=mis_solicitudes(db), folio=vales.folio,
-        pedir=evidencias.requeridos(db),
+        pedir=evidencias.requeridos(db, solicitante), empleado=solicitante == "empleado",
         **{k: v for k, v in vales.sugerencias(db).items() if k != "materiales"},
     )
 
@@ -83,4 +95,5 @@ def estado(token):
         (vale["id"],),
     ).fetchall()
     return render_template("solicitud_estado.html", vale=vale, items=items, folio=vales.folio,
-                           evidencias=evidencias.de_vale(db, vale["id"]))
+                           evidencias=evidencias.de_vale(db, vale["id"]),
+                           hora_entrada=vales.hora_entrada(db, vale))

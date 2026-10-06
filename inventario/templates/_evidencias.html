@@ -1,16 +1,16 @@
 {# Firma en pantalla y foto de la credencial para los formularios de vale.
    El formulario que lo incluya debe usar enctype="multipart/form-data". #}
-{% macro campos(pedir, form, credencial_obligatoria=True) %}
+{% macro campos(pedir, form, credencial_obligatoria=True, quien='alumno') %}
 {% set firma_previa = form.get('firma', '') if form.get('firma', '').startswith('data:image/') else '' %}
 {% set credencial_previa = form.get('credencial', '') if form.get('credencial', '').startswith('data:image/') else '' %}
 {% if pedir.firma or pedir.credencial %}
 <fieldset class="completo evidencias">
-  <legend>Identificación del alumno</legend>
+  <legend>Identificación del {{ quien }}</legend>
 
   {% if pedir.firma %}
   <div class="firma">
     <div class="firma-encabezado">
-      <strong>Firma del alumno *</strong>
+      <strong>Firma del {{ quien }} *</strong>
       <button type="button" class="secundario" id="firma-borrar">Borrar firma</button>
     </div>
     <canvas id="firma-lienzo" aria-label="Espacio para firmar con el dedo o el ratón"></canvas>
@@ -103,7 +103,7 @@
   formulario.addEventListener('submit', e => {
     {% if pedir.firma %}
     if (!document.getElementById('firma-dato').value) {
-      e.preventDefault(); alert('Falta la firma del alumno.'); lienzo.scrollIntoView({block: 'center'}); return;
+      e.preventDefault(); alert('Falta la firma del {{ quien }}.'); lienzo.scrollIntoView({block: 'center'}); return;
     }
     {% endif %}
     {% if pedir.credencial and credencial_obligatoria %}

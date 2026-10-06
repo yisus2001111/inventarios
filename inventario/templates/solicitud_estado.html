@@ -20,10 +20,17 @@
 
 <dl class="datos-movil">
   <dt>Fecha</dt><dd>{{ vale.fecha[:16] }}</dd>
+  {% if vale.solicitante == 'empleado' %}
+  <dt>Empleado</dt><dd>{{ vale.alumno }}</dd>
+  <dt>Salida</dt><dd>{{ vale.entregado_en[:16] if vale.entregado_en else 'Pendiente' }}</dd>
+  <dt>Entrada</dt><dd>{{ hora_entrada[:16] if hora_entrada else 'Pendiente' }}</dd>
+  {% if vale.regreso_estimado %}<dt>Regreso estimado</dt><dd>{{ vale.regreso_estimado }}</dd>{% endif %}
+  {% else %}
   <dt>Alumno</dt><dd>{{ vale.alumno }}{% if vale.matricula %} ({{ vale.matricula }}){% endif %}</dd>
   <dt>Materia</dt><dd>{{ vale.materia }}</dd>
   <dt>Maestro</dt><dd>{{ vale.maestro }}</dd>
   <dt>Práctica</dt><dd>{{ vale.practica }}</dd>
+  {% endif %}
 </dl>
 {% if evidencias %}<p class="nota">{% if 'firma' in evidencias %}✔ Firma registrada {% endif %}{% if 'credencial' in evidencias %}✔ Foto de credencial registrada{% endif %}</p>{% endif %}
 <ul class="elegidos">

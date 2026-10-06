@@ -1,5 +1,6 @@
 """Vales de material para prácticas: préstamo a alumnos y devolución."""
 
+import re
 import secrets
 import socket
 
@@ -18,9 +19,22 @@ from .utiles import entero, respuesta_csv
 POR_PAGINA = 50
 ESTADOS = {"solicitado": "Por entregar", "abierto": "Entregado, pendiente de devolver",
            "cerrado": "Cerrado", "rechazado": "Rechazado"}
-CAMPOS = ("alumno", "matricula", "materia", "maestro", "practica", "observaciones")
-OBLIGATORIOS = {"alumno": "nombre del alumno", "materia": "materia",
-                "maestro": "nombre del maestro", "practica": "nombre de la práctica"}
+CAMPOS = ("alumno", "matricula", "materia", "maestro", "practica", "observaciones",
+          "regreso_estimado")
+# El campo «alumno» guarda el nombre de quien pide, sea alumno o empleado.
+OBLIGATORIOS = {
+    "alumno": {"alumno": "nombre del alumno", "materia": "materia",
+               "maestro": "nombre del maestro", "practica": "nombre de la práctica"},
+    "empleado": {"alumno": "nombre del empleado"},
+}
+SOLICITANTES = ("alumno", "empleado")
+
+
+def motivo_de(vale):
+    """Texto que acompaña al vale en el historial de movimientos."""
+    if vale["solicitante"] == "empleado":
+        return f"{vale['alumno']} · Empleado"
+    return f"{vale['alumno']} · {vale['practica']}"
 
 bp = Blueprint("vales", __name__, url_prefix="/vales")
 
@@ -48,16 +62,20 @@ LARGO_MAXIMO = 150      # caracteres por campo de texto
 MAX_RENGLONES = 30
 
 
-def validar(db, datos, renglones, solo_disponible=False):
+def validar(db, datos, renglones, solo_disponible=False, solicitante="alumno"):
     """Revisa los datos del vale. Devuelve [(producto, cantidad), ...] sin repetir productos.
 
     `renglones` es una lista de (texto_material, cantidad); los renglones vacíos se ignoran.
     Con `solo_disponible` se rechaza material desactivado o sin existencia suficiente
     (se usa en las solicitudes de alumnos, que todavía no descuentan inventario).
     """
-    faltan = [texto for campo, texto in OBLIGATORIOS.items() if not datos.get(campo)]
+    faltan = [texto for campo, texto in OBLIGATORIOS[solicitante].items()
+              if not datos.get(campo)]
     if faltan:
         raise ErrorInventario("Falta: " + ", ".join(faltan) + ".")
+    if datos.get("regreso_estimado") and not re.fullmatch(r"\d{2}:\d{2}",
+                                                            datos["regreso_estimado"]):
+        raise ErrorInventario("La hora estimada de regreso no es válida.")
     if any(len(datos.get(c, "")) > LARGO_MAXIMO for c in CAMPOS):
         raise ErrorInventario(f"Los campos de texto admiten máximo {LARGO_MAXIMO} caracteres.")
 
@@ -102,38 +120,39 @@ def insertar(db, datos, renglones, **columnas):
 
 def descontar(db, vale_id, usuario):
     """Saca del inventario el material del vale (al entregarlo)."""
-    vale = db.execute("SELECT alumno, practica FROM vales WHERE id = ?", (vale_id,)).fetchone()
-    motivo = f"{vale['alumno']} · {vale['practica']}"
+    vale = db.execute("SELECT * FROM vales WHERE id = ?", (vale_id,)).fetchone()
+    motivo = motivo_de(vale)
     for item in db.execute("SELECT producto_id, cantidad FROM vale_items WHERE vale_id = ? "
                            "ORDER BY id", (vale_id,)).fetchall():
         base.registrar_movimiento(db, item["producto_id"], "vale", item["cantidad"], motivo,
                                   usuario, vale_id=vale_id)
 
 
-def crear_vale(db, datos, renglones, usuario, archivos=None):
+def crear_vale(db, datos, renglones, usuario, archivos=None, solicitante="alumno"):
     """Vale capturado en el mostrador: se entrega y descuenta en el momento.
 
     Todo ocurre en una sola transacción: si algún renglón no es válido no se registra nada.
     """
-    renglones = validar(db, datos, renglones)
+    renglones = validar(db, datos, renglones, solicitante=solicitante)
     fecha = ahora()
     vale_id = insertar(db, datos, renglones, fecha=fecha, usuario=usuario, estado="abierto",
-                       origen="mostrador", entregado_en=fecha, entregado_por=usuario)
+                       origen="mostrador", entregado_en=fecha, entregado_por=usuario,
+                       solicitante=solicitante)
     evidencias.guardar(db, vale_id, archivos or {})
     descontar(db, vale_id, usuario)
     return vale_id
 
 
-def crear_solicitud(db, datos, renglones, archivos=None):
+def crear_solicitud(db, datos, renglones, archivos=None, solicitante="alumno"):
     """Vale llenado por el alumno: queda en espera y no toca el inventario.
 
     Devuelve (vale_id, token). El token es la clave secreta con la que el alumno
     consulta el estado de su solicitud.
     """
-    renglones = validar(db, datos, renglones, solo_disponible=True)
+    renglones = validar(db, datos, renglones, solo_disponible=True, solicitante=solicitante)
     token = secrets.token_urlsafe(16)
     vale_id = insertar(db, datos, renglones, fecha=ahora(), estado="solicitado",
-                       origen="alumno", token=token)
+                       origen="alumno", token=token, solicitante=solicitante)
     evidencias.guardar(db, vale_id, archivos or {})
     return vale_id, token
 
@@ -189,7 +208,7 @@ def devolver(db, vale, devoluciones, usuario):
             )
         db.execute("UPDATE vale_items SET devuelto = devuelto + ? WHERE id = ?", (cantidad, item_id))
         base.registrar_movimiento(db, item["producto_id"], "devolucion", cantidad,
-                                  f"{vale['alumno']} · {vale['practica']}", usuario,
+                                  motivo_de(vale), usuario,
                                   vale_id=vale["id"])
         total += cantidad
     queda = db.execute("SELECT COALESCE(SUM(cantidad - devuelto), 0) FROM vale_items "
@@ -219,6 +238,15 @@ def eliminar_vale(db, vale_id):
     db.execute("DELETE FROM vales WHERE id = ?", (vale_id,))
 
 
+def hora_entrada(db, vale):
+    """Hora en que regresó todo el material; vacío si no ha regresado o no regresó completo."""
+    if vale["estado"] != "cerrado" or not vale["cerrado_en"]:
+        return ""
+    falta = db.execute("SELECT COALESCE(SUM(cantidad - devuelto), 0) FROM vale_items "
+                       "WHERE vale_id = ?", (vale["id"],)).fetchone()[0]
+    return "" if falta else vale["cerrado_en"]
+
+
 def cerrar(db, vale_id, usuario):
     db.execute("UPDATE vales SET estado = 'cerrado', cerrado_en = ?, cerrado_por = ? "
                "WHERE id = ?", (ahora(), usuario, vale_id))
@@ -238,7 +266,11 @@ def consulta_vales():
     q = request.args.get("q", "").strip()
     desde = request.args.get("desde", "")
     hasta = request.args.get("hasta", "")
+    solicitante = request.args.get("solicitante", "")
     condiciones, params = [], []
+    if solicitante in SOLICITANTES:
+        condiciones.append("v.solicitante = ?")
+        params.append(solicitante)
     if estado == "pendientes":
         condiciones.append("v.estado IN ('solicitado', 'abierto')")
     elif estado in ESTADOS:
@@ -261,7 +293,8 @@ def consulta_vales():
         condiciones.append("v.fecha <= ?")
         params.append(hasta + " 23:59:59")
     where = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
-    return where, params, dict(estado=estado, q=q, desde=desde, hasta=hasta)
+    return where, params, dict(estado=estado, q=q, desde=desde, hasta=hasta,
+                               solicitante=solicitante)
 
 
 @bp.route("/")
@@ -308,12 +341,17 @@ def nuevo():
     db = get_db()
     form = request.form
     renglones = list(zip(form.getlist("material"), form.getlist("cantidad")))
+    solicitante = request.values.get("solicitante")
+    solicitante = solicitante if solicitante in SOLICITANTES else "alumno"
     if request.method == "POST":
         datos = {c: form.get(c, "").strip() for c in CAMPOS}
         try:
-            # En el mostrador el encargado ve la credencial, así que la foto es opcional.
-            archivos = evidencias.recoger(db, form, request.files, exigir=("firma",))
-            vale_id = crear_vale(db, datos, renglones, g.usuario["usuario"], archivos)
+            # En el mostrador el encargado ve la credencial, así que la foto es opcional;
+            # a los empleados solo se les pide la firma.
+            archivos = evidencias.recoger(db, form, request.files, exigir=("firma",),
+                                          solicitante=solicitante)
+            vale_id = crear_vale(db, datos, renglones, g.usuario["usuario"], archivos,
+                                 solicitante=solicitante)
             db.commit()
         except ErrorInventario as e:
             db.rollback()
@@ -323,7 +361,8 @@ def nuevo():
             return redirect(url_for("vales.detalle", vale_id=vale_id))
     renglones = [r for r in renglones if r[0].strip()] or [("", "1")]
     return render_template("vale_form.html", form=form, renglones=renglones,
-                           pedir=evidencias.requeridos(db), **sugerencias(db))
+                           solicitante=solicitante,
+                           pedir=evidencias.requeridos(db, solicitante), **sugerencias(db))
 
 
 @bp.route("/<int:vale_id>")
@@ -335,7 +374,8 @@ def detalle(vale_id):
         (vale_id,),
     ).fetchall()
     return render_template("vale.html", vale=vale, items=items, folio=folio, estados=ESTADOS,
-                           evidencias=evidencias.de_vale(get_db(), vale_id))
+                           evidencias=evidencias.de_vale(get_db(), vale_id),
+                           hora_entrada=hora_entrada(get_db(), vale))
 
 
 @bp.route("/<int:vale_id>/<any(firma, credencial):tipo>")
@@ -484,13 +524,15 @@ def exportar():
     ).fetchall()
     return respuesta_csv(
         "vales",
-        ["folio", "fecha", "alumno", "matricula", "materia", "maestro", "practica",
+        ["folio", "fecha", "solicitante", "nombre", "matricula", "materia", "maestro", "practica",
          "numero_inventario", "material", "cantidad", "devuelto", "no_devuelto", "estado",
-         "origen", "entregado_en", "entregado_por", "observaciones", "motivo_rechazo"],
-        [(folio(f["id"]), f["fecha"], f["alumno"], f["matricula"], f["materia"], f["maestro"],
+         "origen", "hora_salida", "entregado_por", "hora_entrada", "regreso_estimado",
+         "observaciones", "motivo_rechazo"],
+        [(folio(f["id"]), f["fecha"], f["solicitante"], f["alumno"], f["matricula"],
+          f["materia"], f["maestro"],
           f["practica"], f["codigo"], f["material"], f["cantidad"], f["devuelto"],
           f["cantidad"] - f["devuelto"], ESTADOS[f["estado"]], f["origen"],
-          f["entregado_en"] or "", f["entregado_por"] or "", f["observaciones"],
-          f["motivo_rechazo"])
+          f["entregado_en"] or "", f["entregado_por"] or "", hora_entrada(get_db(), f),
+          f["regreso_estimado"], f["observaciones"], f["motivo_rechazo"])
          for f in filas],
     )

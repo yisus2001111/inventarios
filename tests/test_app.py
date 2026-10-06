@@ -833,3 +833,90 @@ def test_eliminar_vale_borra_sus_imagenes(client, app):
     import sqlite3
     con = sqlite3.connect(app.config["DATABASE"])
     assert con.execute("SELECT COUNT(*) FROM vale_archivos").fetchone()[0] == 0
+
+
+# --------------------------------------------------------- vales de empleados
+
+
+def solicitar_empleado(c, renglones, **extra):
+    data = {"alumno": "Ing. Pedro Ruiz", "regreso_estimado": "14:30", "firma": FIRMA}
+    data.update(extra)
+    data["material"] = [r[0] for r in renglones]
+    data["cantidad"] = [str(r[1]) for r in renglones]
+    return c.post("/solicitud/empleado", data=data, follow_redirects=True)
+
+
+def test_empleado_solicita_solo_con_nombre_y_firma(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    emp = app.test_client()
+    html = emp.get("/solicitud/empleado").get_data(as_text=True)
+    assert "Empleados" in html and 'name="materia"' not in html
+    assert 'id="firma-lienzo"' in html and 'capture="environment"' not in html
+    assert "Falta la firma del empleado" in solicitar_empleado(emp, [("LAB-1", 1)], firma="").get_data(as_text=True)
+    assert "Falta: nombre del empleado" in solicitar_empleado(emp, [("LAB-1", 1)], alumno="").get_data(as_text=True)
+    html = solicitar_empleado(emp, [("LAB-1", 2)]).get_data(as_text=True)
+    assert "V-00001" in html and "Ing. Pedro Ruiz" in html and "Regreso estimado" in html
+    assert existencia(client, 1) == 5   # aún no se entrega
+
+
+def test_vale_de_empleado_registra_salida_y_entrada(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    emp = app.test_client()
+    token = solicitar_empleado(emp, [("LAB-1", 2)]).request.path.rsplit("/", 1)[1]
+    html = client.get("/vales/1").get_data(as_text=True)
+    assert "Hora de salida" in html and "Aún no se entrega" in html and "<dt>Materia" not in html
+    client.post("/vales/1/entregar", data={})
+    html = client.get("/vales/1").get_data(as_text=True)
+    assert "Hora de entrada</dt><dd>Pendiente" in html
+    assert "Ing. Pedro Ruiz · Empleado" in client.get("/movimientos").get_data(as_text=True)
+    client.post("/vales/1/devolucion", data={"devolver_1": "2"})
+    vale = __import__("sqlite3").connect(app.config["DATABASE"]).execute(
+        "SELECT entregado_en, cerrado_en FROM vales WHERE id = 1").fetchone()
+    html = client.get("/vales/1").get_data(as_text=True)
+    assert f"Hora de entrada</dt><dd>{vale[1]}" in html and vale[0] in html
+    assert existencia(client, 1) == 5
+    estado = emp.get(f"/solicitud/{token}").get_data(as_text=True)
+    assert "Entrada</dt><dd>" + vale[1][:16] in estado
+
+
+def test_empleado_cerrado_sin_devolver_no_tiene_hora_de_entrada(client, app):
+    nuevo(client, codigo="LAB-1", stock=5)
+    vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto")
+    client.post("/vales/1/cerrar")
+    assert "Material no devuelto" in client.get("/vales/1").get_data(as_text=True)
+
+
+def test_vale_de_empleado_en_mostrador_y_filtros(client):
+    nuevo(client, codigo="LAB-1", stock=5)
+    r = client.get("/vales/nuevo?solicitante=empleado").get_data(as_text=True)
+    assert "Nombre del empleado" in r and 'name="materia"' not in r
+    r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="Ana Soto",
+             materia="", maestro="", practica="", regreso_estimado="16:00")
+    assert "registrado" in r.get_data(as_text=True)
+    vale(client, [("LAB-1", 1)])   # vale de alumno
+    html = client.get("/vales/?solicitante=empleado").get_data(as_text=True)
+    assert "Ana Soto" in html and "María López" not in html and "regresa ~16:00" in html
+    csv = client.get("/vales/exportar.csv?estado=todos&solicitante=empleado").get_data(as_text=True)
+    assert "hora_salida" in csv and ",empleado,Ana Soto," in csv and ",16:00," in csv
+    r = vale(client, [("LAB-1", 1)], solicitante="empleado", alumno="X", regreso_estimado="mañana")
+    assert "hora estimada de regreso no es válida" in r.get_data(as_text=True)
+
+
+def test_migra_vales_sin_columna_solicitante(tmp_path):
+    import sqlite3
+    from inventario.db import VALES_DDL
+    ruta = tmp_path / "v.db"
+    con = sqlite3.connect(ruta)
+    ddl = VALES_DDL.format(nombre="vales").replace(
+        ",\n    solicitante    TEXT    NOT NULL DEFAULT 'alumno' CHECK (solicitante IN ('alumno', 'empleado')),\n    regreso_estimado TEXT  NOT NULL DEFAULT ''", "")
+    assert "solicitante" not in ddl
+    con.executescript(ddl + """
+        INSERT INTO vales (alumno, materia, maestro, practica, fecha, usuario)
+        VALUES ('Ana', 'F', 'M', 'P', '2026-01-01 10:00:00', 'luis');""")
+    con.commit()
+    con.close()
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": str(ruta)})
+    c = app.test_client()
+    c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "secreta1",
+                                          "confirmacion": "secreta1"})
+    assert "Ana" in c.get("/vales/?estado=todos&solicitante=alumno").get_data(as_text=True)

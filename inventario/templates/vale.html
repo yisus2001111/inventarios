@@ -14,23 +14,30 @@
     <div class="vale-titulo">
       {% if hay_logo %}<img class="logo-vale" src="{{ url_for('logo', v=version_logo) }}" alt="">{% endif %}
       <div>
-      <p class="nota">{{ institucion }} · Vale de material para prácticas</p>
+      <p class="nota">{{ institucion }} · {{ 'Vale de material · Empleado' if vale.solicitante == 'empleado' else 'Vale de material para prácticas' }}</p>
       <h1>Folio {{ folio(vale.id) }}</h1>
       </div>
     </div>
     <div class="derecha">
       <span class="etiqueta {{ 'pendiente' if vale.estado == 'abierto' else vale.estado }}">{{ estados[vale.estado] }}</span>
-      {% if vale.origen == 'alumno' %}<p class="nota">Solicitado por el alumno en línea</p>{% endif %}
+      {% if vale.origen == 'alumno' %}<p class="nota">Solicitado por el {{ vale.solicitante }} en línea</p>{% endif %}
     </div>
   </header>
   <dl class="datos">
     <div><dt>Fecha</dt><dd>{{ vale.fecha }}</dd></div>
+    {% if vale.solicitante == 'empleado' %}
+    <div><dt>Empleado</dt><dd>{{ vale.alumno }}</dd></div>
+    <div><dt>Hora de salida</dt><dd>{{ vale.entregado_en or 'Aún no se entrega' }}{% if vale.entregado_por %} · entregó {{ vale.entregado_por }}{% endif %}</dd></div>
+    <div><dt>Hora de entrada</dt><dd>{{ hora_entrada or ('Material no devuelto (cerrado)' if vale.estado == 'cerrado' else 'Pendiente') }}</dd></div>
+    {% if vale.regreso_estimado %}<div><dt>Regreso estimado</dt><dd>{{ vale.regreso_estimado }}</dd></div>{% endif %}
+    {% else %}
     <div><dt>Alumno</dt><dd>{{ vale.alumno }}</dd></div>
     {% if vale.matricula %}<div><dt>Matrícula</dt><dd>{{ vale.matricula }}</dd></div>{% endif %}
     <div><dt>Materia</dt><dd>{{ vale.materia }}</dd></div>
     <div><dt>Maestro</dt><dd>{{ vale.maestro }}</dd></div>
     <div><dt>Práctica</dt><dd>{{ vale.practica }}</dd></div>
     {% if vale.entregado_en %}<div><dt>Entregado</dt><dd>{{ vale.entregado_en }} por {{ vale.entregado_por }}</dd></div>{% endif %}
+    {% endif %}
     {% if vale.estado == 'cerrado' %}<div><dt>Cerrado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}</dd></div>{% endif %}
     {% if vale.estado == 'rechazado' %}<div><dt>Rechazado</dt><dd>{{ vale.cerrado_en }} por {{ vale.cerrado_por }}{% if vale.motivo_rechazo %}: {{ vale.motivo_rechazo }}{% endif %}</dd></div>{% endif %}
   </dl>
@@ -47,7 +54,7 @@
     {% if 'firma' in evidencias %}
     <figure class="firma-vale no-imprimir">
       <img src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='firma') }}" alt="Firma del alumno">
-      <figcaption>Firma del alumno · {{ evidencias.firma }}</figcaption>
+      <figcaption>Firma del {{ vale.solicitante }} · {{ evidencias.firma }}</figcaption>
     </figure>
     {% endif %}
   </div>
@@ -86,7 +93,7 @@
   </table>
   </div>
   <div class="firmas solo-imprimir">
-    <div>{% if 'firma' in evidencias %}<img class="firma-impresa" src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='firma') }}" alt="">{% endif %}<span class="linea">Firma del alumno</span></div>
+    <div>{% if 'firma' in evidencias %}<img class="firma-impresa" src="{{ url_for('vales.archivo', vale_id=vale.id, tipo='firma') }}" alt="">{% endif %}<span class="linea">Firma del {{ vale.solicitante }}</span></div>
     <div><span class="linea">Entregó: {{ vale.entregado_por or '' }}</span></div>
   </div>
 </article>

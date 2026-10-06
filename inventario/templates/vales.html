@@ -6,13 +6,19 @@
   <div class="botones">
     <a class="boton secundario" href="{{ url_for('vales.exportar', **request.args.to_dict()) }}">Exportar CSV</a>
     {% if puede('operador') %}
-      <a class="boton secundario" href="{{ url_for('vales.qr') }}">Código QR para alumnos</a>
-      <a class="boton" href="{{ url_for('vales.nuevo') }}">+ Nuevo vale</a>
+      <a class="boton secundario" href="{{ url_for('vales.qr') }}">Código QR</a>
+      <a class="boton" href="{{ url_for('vales.nuevo') }}">+ Vale de alumno</a>
+      <a class="boton" href="{{ url_for('vales.nuevo', solicitante='empleado') }}">+ Vale de empleado</a>
     {% endif %}
   </div>
 </div>
 <form class="filtros" method="get">
-  <input type="search" name="q" value="{{ q }}" placeholder="Folio, alumno, matrícula, maestro, materia, práctica o material">
+  <input type="search" name="q" value="{{ q }}" placeholder="Folio, nombre, matrícula, maestro, materia, práctica o material">
+  <select name="solicitante">
+    {% for v, t in [('','Alumnos y empleados'),('alumno','Solo alumnos'),('empleado','Solo empleados')] %}
+      <option value="{{ v }}" {{ 'selected' if v == solicitante }}>{{ t }}</option>
+    {% endfor %}
+  </select>
   <select name="estado">
     {% for v, t in [('pendientes','Por entregar y por devolver'),('solicitado','Por entregar (solicitudes)'),('abierto','Pendientes de devolver'),('cerrado','Cerrados'),('rechazado','Rechazados'),('todos','Todos')] %}
       <option value="{{ v }}" {{ 'selected' if v == estado }}>{{ t }}</option>
@@ -25,14 +31,18 @@
 <p class="nota">{{ total }} vale{{ '' if total == 1 else 's' }}</p>
 <div class="tabla-scroll">
 <table>
-  <thead><tr><th>Folio</th><th>Fecha</th><th>Alumno</th><th>Materia</th><th>Maestro</th><th>Práctica</th><th>Material</th><th>Estado</th></tr></thead>
+  <thead><tr><th>Folio</th><th>Fecha</th><th>Nombre</th><th>Materia</th><th>Maestro</th><th>Práctica</th><th>Material</th><th>Estado</th></tr></thead>
   <tbody>
   {% for v in vales %}
     <tr class="{{ 'resaltar' if v.estado == 'solicitado' }}">
       <td><a href="{{ url_for('vales.detalle', vale_id=v.id) }}">{{ folio(v.id) }}</a></td>
       <td>{{ v.fecha[:16] }}</td>
-      <td>{{ v.alumno }}{% if v.matricula %} <span class="nota">({{ v.matricula }})</span>{% endif %}</td>
+      <td>{{ v.alumno }}{% if v.solicitante == 'empleado' %} <span class="etiqueta empleado">empleado</span>{% elif v.matricula %} <span class="nota">({{ v.matricula }})</span>{% endif %}</td>
+      {% if v.solicitante == 'empleado' %}
+      <td colspan="3" class="nota">{% if v.entregado_en %}Salida {{ v.entregado_en[11:16] }}{% endif %}{% if v.estado == 'cerrado' and v.pendiente == 0 %} · Entrada {{ v.cerrado_en[11:16] }}{% elif v.regreso_estimado %} · regresa ~{{ v.regreso_estimado }}{% endif %}</td>
+      {% else %}
       <td>{{ v.materia }}</td><td>{{ v.maestro }}</td><td>{{ v.practica }}</td>
+      {% endif %}
       <td class="corta" title="{{ v.materiales }}">{{ v.materiales }}</td>
       <td>{% if v.estado == 'solicitado' %}<a class="etiqueta solicitado" href="{{ url_for('vales.detalle', vale_id=v.id) }}">por entregar</a>
           {% elif v.estado == 'abierto' %}<span class="etiqueta pendiente">debe {{ v.pendiente }}</span>
