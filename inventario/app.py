@@ -453,16 +453,29 @@ def create_app(config=None):
         db = get_db()
         ids = [i for i in (entero(v) for v in request.form.getlist("ids")) if i is not None]
         corregir = request.form.get("corregir") == "1"
+        # Las líneas de un vale (préstamo o devolución) eliminan el vale completo.
+        vales_ids = sorted({f[0] for f in db.execute(
+            f"SELECT vale_id FROM movimientos WHERE vale_id IS NOT NULL "
+            f"AND id IN ({', '.join('?' * len(ids))})", ids)}) if ids else []
         try:
             n = base.eliminar_movimientos(db, ids, corregir_existencia=corregir)
+            for vale_id in vales_ids:
+                vales.eliminar_vale(db, vale_id, regresar_material=corregir)
             db.commit()
         except ErrorInventario as e:
             db.rollback()
             flash(str(e) + " No se eliminó nada.", "error")
         else:
+            partes = []
             if n:
-                flash(f"{n} registro{'' if n == 1 else 's'} eliminado{'' if n == 1 else 's'}"
-                      + (" y existencia corregida." if corregir else "."), "ok")
+                partes.append(f"{n} registro{'' if n == 1 else 's'}")
+            if vales_ids:
+                partes.append(("vale " if len(vales_ids) == 1 else "vales ")
+                              + ", ".join(vales.folio(v) for v in vales_ids)
+                              + " (su folio queda disponible)")
+            if partes:
+                flash("Se eliminó: " + " y ".join(partes)
+                      + (". Existencia corregida." if corregir else "."), "ok")
             else:
                 flash("Marca al menos un registro para eliminarlo.", "error")
         destino = request.form.get("volver", "")

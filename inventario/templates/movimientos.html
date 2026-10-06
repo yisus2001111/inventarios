@@ -26,7 +26,7 @@
   <span><strong id="marcados">0</strong> marcados</span>
   <label class="casilla"><input type="checkbox" name="corregir" value="1" checked> Deshacer su efecto en la existencia</label>
   <button class="peligro">Eliminar marcados</button>
-  <span class="nota">Para limpiar pruebas. Los vales se eliminan desde el propio vale.</span>
+  <span class="nota">Para limpiar pruebas. Si marcas una línea de un vale, se elimina el vale completo y su folio queda disponible.</span>
 </form>
 {% endif %}
 <div class="tabla-scroll">
@@ -34,7 +34,7 @@
   <thead><tr>{% if borrar %}<th class="casilla"><input type="checkbox" id="todos" title="Marcar todos los de esta página"></th>{% endif %}<th>Fecha</th><th>Producto</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Existencia</th><th>Motivo</th><th>Usuario</th></tr></thead>
   <tbody>
   {% for m in movimientos %}
-    <tr>{% if borrar %}<td class="casilla">{% if not m.vale_id %}<input type="checkbox" name="ids" value="{{ m.id }}" form="borrar">{% endif %}</td>{% endif %}<td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
+    <tr>{% if borrar %}<td class="casilla"><input type="checkbox" name="ids" value="{{ m.id }}" form="borrar" {% if m.vale_id %}data-vale="{{ folio(m.vale_id) }}"{% endif %}></td>{% endif %}<td>{{ m.fecha }}</td><td><a href="{{ url_for('producto_detalle', pid=m.producto_id) }}">{{ m.codigo }} · {{ m.nombre }}</a></td>
       <td>{{ mov.tipo(m) }}</td>
       <td class="num">{{ mov.signo(m) }}{{ m.cantidad }}</td>
       <td class="num">{{ m.stock_resultante }} {{ m.unidad }}</td><td>{{ m.motivo }}</td><td>{{ m.responsable }}</td></tr>
@@ -54,7 +54,9 @@
   document.getElementById('borrar').addEventListener('submit', e => {
     const n = casillas.filter(c => c.checked).length;
     if (!n) { e.preventDefault(); alert('Marca al menos un registro.'); return; }
-    if (!confirm('¿Eliminar ' + n + ' registro(s) del historial? No se puede deshacer.')) e.preventDefault();
+    const folios = [...new Set(casillas.filter(c => c.checked && c.dataset.vale).map(c => c.dataset.vale))];
+    const aviso = folios.length ? '\n\nSe eliminarán por completo los vales: ' + folios.join(', ') + ' (sus folios quedarán disponibles).' : '';
+    if (!confirm('¿Eliminar ' + n + ' registro(s) del historial? No se puede deshacer.' + aviso)) e.preventDefault();
   });
 </script>
 {% endif %}

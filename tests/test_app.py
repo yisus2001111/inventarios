@@ -619,7 +619,7 @@ def test_admin_elimina_registros_y_corrige_existencia(client):
     assert existencia(client, 1) == 8
     r = client.post("/movimientos/eliminar", data={"ids": ["2", "3"], "corregir": "1"},
                     follow_redirects=True)
-    assert "2 registros eliminados y existencia corregida" in r.get_data(as_text=True)
+    assert "Se eliminó: 2 registros. Existencia corregida." in r.get_data(as_text=True)
     assert existencia(client, 1) == 10
     # sin corregir: solo se borra la línea
     client.post("/movimientos/eliminar", data={"ids": ["1"]})
@@ -636,13 +636,20 @@ def test_eliminar_no_deja_existencia_negativa(client):
     assert existencia(client, 1) == 1
 
 
-def test_eliminar_movimientos_ignora_los_de_vales(client):
+def test_eliminar_desde_historial_borra_el_vale_completo(client):
     nuevo(client, codigo="LAB-1", stock=10)
     vale(client, [("LAB-1", 3)])
-    r = client.post("/movimientos/eliminar", data={"ids": ["2"], "corregir": "1"},
+    client.post("/vales/1/devolucion", data={"devolver_1": "1"})
+    assert existencia(client, 1) == 8
+    ids = __import__("re").findall(r'name="ids" value="(\d+)" form="borrar" data-vale="V-00001"',
+                                   client.get("/movimientos").get_data(as_text=True))
+    assert len(ids) == 2   # préstamo y devolución se pueden marcar
+    r = client.post("/movimientos/eliminar", data={"ids": ids[:1], "corregir": "1"},
                     follow_redirects=True)
-    assert "Marca al menos un registro" in r.get_data(as_text=True)
-    assert existencia(client, 1) == 7
+    assert "vale V-00001 (su folio queda disponible)" in r.get_data(as_text=True)
+    assert existencia(client, 1) == 10
+    assert client.get("/vales/1").status_code == 404
+    assert "V-00001" not in client.get("/movimientos").get_data(as_text=True)
 
 
 def test_admin_elimina_vale_y_regresa_material(client):
@@ -969,3 +976,31 @@ def test_encabezado_falso_de_ip_no_evita_el_bloqueo(client, app):
                headers={"CF-Connecting-IP": f"10.0.0.{i}", "X-Forwarded-For": f"10.0.1.{i}"})
     r = c.post("/login", data={"usuario": "luis", "contrasena": "clave123"})
     assert r.status_code == 429
+
+
+
+# ------------------------------------------------------------- folios libres
+
+
+def test_folio_eliminado_vuelve_a_estar_disponible(client):
+    nuevo(client, codigo="LAB-1", stock=20)
+    for _ in range(3):
+        vale(client, [("LAB-1", 1)])                     # V-00001, V-00002, V-00003
+    client.post("/vales/2/eliminar")
+    r = vale(client, [("LAB-1", 1)], alumno="Nuevo Alumno")
+    assert "Vale V-00002 registrado" in r.get_data(as_text=True)
+    assert "Vale V-00004 registrado" in vale(client, [("LAB-1", 1)]).get_data(as_text=True)
+    client.post("/vales/4/eliminar")                     # el último también se libera
+    assert "Vale V-00004 registrado" in vale(client, [("LAB-1", 1)]).get_data(as_text=True)
+
+
+def test_folio_libre_en_solicitudes_y_sin_datos_del_vale_anterior(client, app):
+    nuevo(client, codigo="LAB-1", stock=20)
+    solicitar(app.test_client(), [("LAB-1", 1)])         # V-00001 con firma y credencial
+    vale(client, [("LAB-1", 1)])                         # V-00002
+    client.post("/vales/1/eliminar")
+    html = solicitar_empleado(app.test_client(), [("LAB-1", 1)]).get_data(as_text=True)
+    assert "V-00001" in html and "Ing. Pedro Ruiz" in html
+    # el folio reutilizado no conserva la credencial del vale borrado
+    assert client.get("/vales/1/credencial").status_code == 404
+    assert client.get("/vales/1/firma").status_code == 200

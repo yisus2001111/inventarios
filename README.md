@@ -22,8 +22,10 @@ de la red puede usarla. Los datos se guardan en un único archivo SQLite (`inven
   texto. Los préstamos aparecen como **Vale V-00001** (con enlace al vale) y sus
   devoluciones como **Devolución V-00001**, no como altas o bajas.
 - **Eliminar registros de prueba** (solo administrador): desde el historial se marcan
-  líneas y se eliminan, opcionalmente deshaciendo su efecto en la existencia; un vale se
-  elimina completo desde el propio vale y su material regresa a la existencia.
+  líneas y se eliminan, opcionalmente deshaciendo su efecto en la existencia. Si se marca
+  una línea de un vale, se elimina el vale completo (también se puede desde el propio vale);
+  su material regresa a la existencia y **su folio vuelve a estar disponible**: el siguiente
+  vale toma el número libre más bajo.
 - **Importar CSV** para cargar el inventario inicial (por ejemplo, desde Excel) y
   **exportar CSV** de productos y movimientos.
 - **Desactivar** productos que ya no se usan (solo si su existencia es 0), sin perder su historial.
@@ -180,6 +182,36 @@ Si aparece una página de «Ocurrió un error», el detalle se guarda en `errore
 
 Todo está en `inventario.db` (productos, movimientos, vales y usuarios). Para respaldar, copia ese archivo (idealmente con la
 aplicación detenida) o usa **Exportar CSV**.
+
+## Ver y modificar el código
+
+El programa está escrito en **Python** (con Flask) y las pantallas en **HTML/CSS**. Se
+recomienda abrir la carpeta con [Visual Studio Code](https://code.visualstudio.com/)
+(*Archivo → Abrir carpeta*).
+
+| Archivo / carpeta                  | Qué contiene                                                    |
+|------------------------------------|-----------------------------------------------------------------|
+| `run.py`                           | Arranca el programa                                             |
+| `inventario/app.py`                | Productos, altas/bajas, historial, importar/exportar, configuración |
+| `inventario/vales.py`              | Vales: captura, entrega, devoluciones, folios, código QR        |
+| `inventario/publico.py`            | Páginas para alumnos y empleados (sin cuenta)                   |
+| `inventario/evidencias.py`         | Firma y foto de credencial                                      |
+| `inventario/auth.py`               | Usuarios, contraseñas, permisos e inicio de sesión              |
+| `inventario/db.py`                 | Estructura de la base de datos y migraciones                    |
+| `inventario/templates/`            | Pantallas (HTML). Por ejemplo `vale.html`, `solicitud.html`     |
+| `inventario/static/style.css`      | Colores y diseño (la paleta está al inicio, en `:root`)         |
+| `tests/test_app.py`                | Pruebas automáticas                                             |
+
+Para trabajar en el código, arranca el programa en **modo desarrollo**: se reinicia solo
+cada vez que guardas un archivo y muestra los errores con detalle (solo en esa computadora):
+
+```bat
+set INVENTARIO_DEBUG=1
+python run.py
+```
+
+Para el uso diario ciérralo y ábrelo normal (sin `INVENTARIO_DEBUG`). Antes de modificar,
+**haz una copia de `inventario.db`**. Después de cambiar algo, corre las pruebas.
 
 ## Pruebas
 

@@ -3,6 +3,7 @@
 import re
 import secrets
 import socket
+import sqlite3
 
 import qrcode
 import qrcode.image.svg
@@ -106,16 +107,36 @@ def validar(db, datos, renglones, solo_disponible=False, solicitante="alumno"):
     return [(productos[pid], n) for pid, n in cantidades.items()]
 
 
+def siguiente_folio(db):
+    """Número de folio más bajo que esté libre.
+
+    Así, si se elimina un vale, su folio vuelve a quedar disponible para el siguiente.
+    """
+    if db.execute("SELECT 1 FROM vales WHERE id = 1").fetchone() is None:
+        return 1
+    return db.execute(
+        "SELECT MIN(v.id) + 1 FROM vales v "
+        "WHERE NOT EXISTS (SELECT 1 FROM vales w WHERE w.id = v.id + 1)").fetchone()[0]
+
+
 def insertar(db, datos, renglones, **columnas):
-    nombres = list(CAMPOS) + list(columnas)
-    cur = db.execute(
-        f"INSERT INTO vales ({', '.join(nombres)}) VALUES ({', '.join('?' * len(nombres))})",
-        [datos.get(c, "") for c in CAMPOS] + list(columnas.values()),
-    )
+    nombres = ["id"] + list(CAMPOS) + list(columnas)
+    valores = [datos.get(c, "") for c in CAMPOS] + list(columnas.values())
+    for intento in range(5):
+        vale_id = siguiente_folio(db)
+        try:
+            db.execute(
+                f"INSERT INTO vales ({', '.join(nombres)}) "
+                f"VALUES ({', '.join('?' * len(nombres))})", [vale_id] + valores)
+            break
+        except sqlite3.IntegrityError:
+            # Otra persona tomó ese folio al mismo tiempo: se calcula el siguiente.
+            if intento == 4:
+                raise
     for producto, n in renglones:
         db.execute("INSERT INTO vale_items (vale_id, producto_id, cantidad) VALUES (?, ?, ?)",
-                   (cur.lastrowid, producto["id"], n))
-    return cur.lastrowid
+                   (vale_id, producto["id"], n))
+    return vale_id
 
 
 def descontar(db, vale_id, usuario):
@@ -218,16 +239,16 @@ def devolver(db, vale, devoluciones, usuario):
     return total
 
 
-def eliminar_vale(db, vale_id):
-    """Borra un vale por completo (para limpiar pruebas) y deshace su efecto en el inventario.
+def eliminar_vale(db, vale_id, regresar_material=True):
+    """Borra un vale por completo (para limpiar pruebas); su folio queda libre.
 
-    Lo que el vale tenga fuera (entregado y no devuelto, incluido lo consumido) regresa a la
-    existencia; se borran también sus movimientos del historial.
+    Con `regresar_material`, lo que el vale tenga fuera (entregado y no devuelto, incluido
+    lo consumido) regresa a la existencia. Se borran también sus movimientos del historial.
     """
     vale = db.execute("SELECT estado FROM vales WHERE id = ?", (vale_id,)).fetchone()
     if vale is None:
         raise ErrorInventario("El vale no existe.")
-    if vale["estado"] in ("abierto", "cerrado"):
+    if regresar_material and vale["estado"] in ("abierto", "cerrado"):
         for item in db.execute("SELECT producto_id, cantidad, devuelto FROM vale_items "
                                "WHERE vale_id = ?", (vale_id,)).fetchall():
             db.execute("UPDATE productos SET stock = stock + ? WHERE id = ?",
@@ -432,7 +453,8 @@ def eliminar(vale_id):
     obtener_vale(vale_id)
     eliminar_vale(db, vale_id)
     db.commit()
-    flash(f"Vale {folio(vale_id)} eliminado; su material se regresó a la existencia.", "ok")
+    flash(f"Vale {folio(vale_id)} eliminado; su material se regresó a la existencia y el "
+          "folio quedó disponible.", "ok")
     return redirect(url_for("vales.lista", estado="todos"))
 
 
