@@ -2,12 +2,14 @@
 
 import csv
 import io
+import logging
 import os
 import secrets
 from datetime import timedelta
 
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, url_for)
+from markupsafe import escape
 
 from . import auth, publico, vales
 from . import db as base
@@ -105,6 +107,32 @@ def create_app(config=None):
     def solicitud_invalida(e):
         return render_template("error.html", titulo="Solicitud no válida",
                                mensaje=e.description), 400
+
+    # Los errores inesperados se guardan con todo su detalle en errores.log (junto a la
+    # base de datos) para poder diagnosticarlos.
+    ruta_log = os.path.join(os.path.dirname(os.path.abspath(app.config["DATABASE"])),
+                            "errores.log")
+    registro = logging.FileHandler(ruta_log, encoding="utf-8", delay=True)
+    registro.setLevel(logging.ERROR)
+    registro.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    app.logger.addHandler(registro)
+
+    @app.errorhandler(500)
+    def error_interno(e):
+        # Página sin plantillas: debe mostrarse aunque la falla venga de una plantilla.
+        original = getattr(e, "original_exception", None) or e
+        detalle = f"{type(original).__name__}: {original}"
+        return (f"""<!doctype html><html lang="es"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Error</title>
+<body style="font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px">
+<h1 style="color:#5d1a2c">Ocurrió un error</h1>
+<p>Si acabas de actualizar el programa, <strong>ciérralo y vuelve a abrirlo</strong>
+(en la ventana negra presiona <kbd>Ctrl</kbd>+<kbd>C</kbd> y luego <code>python run.py</code>).</p>
+<p>Si el problema sigue, envía el archivo <code>errores.log</code> que está junto a
+<code>inventario.db</code>.</p>
+<p style="color:#626a73;font-size:.9em">Detalle: {escape(detalle)}</p>
+<p><a href="/">Volver al inicio</a></p>""", 500)
 
     @app.errorhandler(403)
     def prohibido(_e):

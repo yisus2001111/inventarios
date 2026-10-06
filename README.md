@@ -140,6 +140,19 @@ Los colores siguen la paleta institucional de la UES: vino (Pantone 490 C) y dor
    también puedes subir uno con solo `codigo` y `ubicacion`. La existencia nunca se cambia
    desde la importación.
 
+## Actualizar a una versión nueva
+
+1. **Cierra el programa**: en la ventana donde corre presiona `Ctrl`+`C`.
+   Si actualizas con el programa abierto, se mezclan la versión vieja y la nueva y
+   algunas pantallas marcan error.
+2. Descarga la versión nueva (ZIP o `git pull`). Si usas el ZIP, copia a la carpeta nueva
+   tus archivos `inventario.db` y `.clave_secreta`.
+3. Activa el entorno y ejecuta `pip install -r requirements.txt` (por si hay librerías nuevas).
+4. Vuelve a abrirlo con `python run.py`. Los cambios a la base de datos se aplican solos.
+
+Si aparece una página de «Ocurrió un error», el detalle se guarda en `errores.log`, junto a
+`inventario.db`.
+
 ## Respaldos
 
 Todo está en `inventario.db` (productos, movimientos, vales y usuarios). Para respaldar, copia ese archivo (idealmente con la

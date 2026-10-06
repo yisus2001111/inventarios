@@ -718,3 +718,22 @@ def test_migra_movimientos_de_vales_anteriores(tmp_path):
     html = c.get("/movimientos").get_data(as_text=True)
     assert "Vale V-00012" in html and "Devolución V-00012" in html
     assert 'class="etiqueta alta"' in html and 'etiqueta baja' not in html
+
+
+def test_error_inesperado_muestra_pagina_y_queda_en_log(tmp_path):
+    app = create_app({"CSRF_ENABLED": False, "SECRET_KEY": "t",
+                      "DATABASE": str(tmp_path / "e.db")})
+
+    @app.route("/falla")
+    def falla():
+        raise RuntimeError("algo <salió> mal")
+
+    c = app.test_client()
+    c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "secreta1",
+                                          "confirmacion": "secreta1"})
+    r = c.get("/falla")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 500 and "ciérralo y vuelve a abrirlo" in html
+    assert "RuntimeError: algo &lt;salió&gt; mal" in html
+    log = (tmp_path / "errores.log").read_text(encoding="utf-8")
+    assert "RuntimeError: algo <salió> mal" in log and "Traceback" in log

@@ -5,3 +5,4 @@ inventario.db
 respaldos/
 .pytest_cache/
 .clave_secreta
+errores.log
