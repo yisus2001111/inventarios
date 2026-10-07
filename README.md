@@ -76,6 +76,11 @@ Después, desde el menú **Usuarios**, el administrador da de alta a los demás:
 - Sin iniciar sesión no se puede ver ni modificar nada.
 - Cada quien cambia su contraseña haciendo clic en su nombre (arriba a la derecha).
 - Si alguien olvida su contraseña, un administrador le asigna una nueva desde **Usuarios**.
+- **Si el administrador olvida la suya** (o ya nadie puede entrar), en la computadora donde
+  está instalado el programa, con el entorno activado, ejecuta
+  `python restablecer_contrasena.py`. Muestra los usuarios, pides cuál y escribes la
+  contraseña nueva; también reactiva la cuenta y quita el bloqueo por intentos fallidos.
+  Con `python restablecer_contrasena.py --admin` la cuenta queda además como administrador.
 - Para quitarle el acceso a alguien, desmarca «Usuario activo»; su historial se conserva.
 - Siempre debe quedar al menos un administrador activo.
 - La sesión se cierra sola después de 12 horas.

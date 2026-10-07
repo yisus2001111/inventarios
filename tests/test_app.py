@@ -1004,3 +1004,42 @@ def test_folio_libre_en_solicitudes_y_sin_datos_del_vale_anterior(client, app):
     # el folio reutilizado no conserva la credencial del vale borrado
     assert client.get("/vales/1/credencial").status_code == 404
     assert client.get("/vales/1/firma").status_code == 200
+
+
+# ------------------------------------------------ recuperar contraseña olvidada
+
+
+def test_restablecer_contrasena_desde_la_computadora(tmp_path, monkeypatch, capsys):
+    import restablecer_contrasena as herramienta
+    ruta = str(tmp_path / "inv.db")
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": ruta})
+    c = app.test_client()
+    c.post("/configuracion-inicial", data={"usuario": "admin", "contrasena": "olvidada1",
+                                          "confirmacion": "olvidada1"})
+    crear_usuario(c, "luis", "operador")
+    c.post("/usuarios/2", data={"nombre": "Luis", "rol": "operador"})   # desactivado
+    for _ in range(5):                                                  # y bloqueado
+        app.test_client().post("/login", data={"usuario": "luis", "contrasena": "mala"})
+
+    monkeypatch.setenv("INVENTARIO_DB", ruta)
+    monkeypatch.setattr("builtins.input", lambda _: "luis")
+    respuestas = iter(["123", "123", "nueva123", "nueva123"])        # 1.ª corta, 2.ª válida
+    monkeypatch.setattr(herramienta.getpass, "getpass", lambda _: next(respuestas))
+    assert herramienta.main(["--admin"]) == 0
+    salida = capsys.readouterr().out
+    assert "al menos 6 caracteres" in salida and "como administrador" in salida
+
+    luis = entrar(app, "luis", "nueva123")
+    assert luis.get("/usuarios").status_code == 200                     # activo y admin
+
+
+def test_restablecer_usuario_inexistente(tmp_path, monkeypatch, capsys):
+    import restablecer_contrasena as herramienta
+    ruta = str(tmp_path / "inv.db")
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": ruta})
+    app.test_client().post("/configuracion-inicial", data={
+        "usuario": "admin", "contrasena": "secreta1", "confirmacion": "secreta1"})
+    monkeypatch.setenv("INVENTARIO_DB", ruta)
+    monkeypatch.setattr("builtins.input", lambda _: "nadie")
+    assert herramienta.main([]) == 1
+    assert "No existe el usuario «nadie»" in capsys.readouterr().out
