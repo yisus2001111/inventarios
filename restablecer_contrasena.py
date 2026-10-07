@@ -8,6 +8,9 @@ ella es quien puede hacerlo):
 Muestra los usuarios, pide cuál y la contraseña nueva. Además reactiva la cuenta y
 quita el bloqueo por intentos fallidos. Con la opción --admin la cuenta queda como
 administrador (útil si ya no queda ningún administrador activo).
+
+Al escribir la contraseña no se ve nada en pantalla (es normal). Con --visible sí se ve,
+por si la ventana no deja escribir de forma oculta.
 """
 
 import getpass
@@ -22,6 +25,12 @@ from inventario.db import get_db
 
 def main(argv):
     hacer_admin = "--admin" in argv
+    if "--visible" in argv:
+        pedir = input
+        aviso = "se verá al escribir"
+    else:
+        pedir = getpass.getpass
+        aviso = "no se ve al escribir; escríbela y presiona Enter"
     app = create_app()
     with app.app_context():
         db = get_db()
@@ -43,9 +52,8 @@ def main(argv):
             return 1
 
         while True:
-            nueva = getpass.getpass(f"Contraseña nueva (mínimo {LONGITUD_MINIMA} caracteres, "
-                                    "no se ve al escribir): ")
-            error = validar_contrasena(nueva, getpass.getpass("Repítela: "))
+            nueva = pedir(f"Contraseña nueva (mínimo {LONGITUD_MINIMA} caracteres, {aviso}): ")
+            error = validar_contrasena(nueva, pedir("Repítela: "))
             if not error:
                 break
             print(error)

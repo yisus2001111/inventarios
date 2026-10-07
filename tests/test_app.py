@@ -1043,3 +1043,17 @@ def test_restablecer_usuario_inexistente(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda _: "nadie")
     assert herramienta.main([]) == 1
     assert "No existe el usuario «nadie»" in capsys.readouterr().out
+
+
+
+def test_restablecer_con_contrasena_visible(tmp_path, monkeypatch):
+    import restablecer_contrasena as herramienta
+    ruta = str(tmp_path / "inv.db")
+    app = create_app({"TESTING": True, "CSRF_ENABLED": False, "SECRET_KEY": "t", "DATABASE": ruta})
+    app.test_client().post("/configuracion-inicial", data={
+        "usuario": "admin", "contrasena": "olvidada1", "confirmacion": "olvidada1"})
+    monkeypatch.setenv("INVENTARIO_DB", ruta)
+    respuestas = iter(["admin", "visible123", "visible123"])
+    monkeypatch.setattr("builtins.input", lambda _: next(respuestas))
+    assert herramienta.main(["--visible"]) == 0
+    assert entrar(app, "admin", "visible123").get("/").status_code == 200
